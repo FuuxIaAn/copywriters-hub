@@ -2,7 +2,7 @@
 
 ## Current Task
 
-把 WorkBuddy 侧能力内建进 exe 自己（不开 WorkBuddy）：选题潜力打分列、内置选题雷达晨报、口播文案强化。已全部落地并 commit（见 Completed）。
+修复配音工坊说话人分割两大问题：①一段长视频被切 100+ 段全部标成 A ②只有标题被当成 1 段对话。已落地并打包（commit a721f20，下次跑 `pyinstaller copywriters_chat.spec` 即可出新 exe）。
 
 ## Non-negotiable Product Boundaries
 
@@ -27,7 +27,7 @@
 - 2026-08-22（内建强化会话）：**选题潜力打分列**（commit 8f0eace）：对标监控高赞榜新增「潜力」列，纯前端四基因（情绪钩子/信息差/身份标签/行动触发）规则 + 互动数据加权出 1-10 分徽章 + 命中基因标签，零 LLM 零后端，仅增强选题目录。
 - 2026-08-22（内建强化会话）：**内置选题雷达·晨报**（commit 7730a42）：新增 `scripts/radar_server.py`，聚合对标监控高赞榜 + 撞车检测 + LLM 分析，生成「今日值得跟选题 Top5 + 撞车警示 + 口播切入角度」日报落盘 output/monitor/radar/。server.py 注册 /api/radar/generate、/api/radar/latest。前端对标监控视图新增「🎯 选题雷达」卡片。LLM 未配置时优雅兜底输出原始数据。.gitignore 补 build/。
 - 2026-08-22（内建强化会话）：**口播文案强化**（commit e7827b7）：对标视频弹窗（monShowDesc/monAcctOpenVid）新增「💬 专家口播改写」按钮，新增 newWorkFlowWithScript 把逐字稿预填进「新建口播文稿」一键送 8 位专家群聊重做口播；修复新增函数时误删 bindSession 签名。整文件 JS 语法校验通过。
-- 2026-08-22：修复 `scripts/extract_server.py` 中 `_looks_like_body_text` 与 `_is_weak_plain_text` 过度过滤短视频描述的问题，让带话题标签的真实短文案（如 `这个日主多出高智商 #癸水 #癸水男 #癸水女`）能作为原稿正文被提取并进入校对页。
+- 2026-08-22（配音工坊修复会话）：**说话人分割修复**（commit a721f20）：`_presegment_text` 切太碎（156 段→7 段）、`_looks_like_dialogue` 扩展命理/咨询特征词、新增 `_looks_like_title_only` 识别标题兜底、works_library 标题兜底改为返回失败。现有 unittest 4/4 通过；冒烟测试 fallback 正确交替 A/B。**已用 Python 3.12 + PyInstaller 6.22.2 重新打包**，产出 `dist/靓仔文案工作台.exe`（95MB）并覆盖桌面快捷方式；`--probe` 自检通过。
 - 2026-08-22：洗稿入口校对弹窗优化——
   - `.modal-box` 加 `max-height:85vh; overflow-y:auto`，长文案弹窗可滚动，底部「确认」按钮始终可见。
   - `openModal` 扩展支持 `type:'checkbox'` 字段。
