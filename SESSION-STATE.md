@@ -20,6 +20,9 @@
 
 ## Completed
 
+- 2026-08-22（装备配置会话）：**新增第 4 份技能方法论 `knowledge/skills_methods/viral-topic-methods.md`**（爆款四基因 + 8 维打分卡 + 传播锚点，来源：WorkBuddy 专家「爆款炼金师」蒸馏；不与已有 title-formulas 重复，拼齐「选题→标题→改写→合规」四段链路）。config.json `skill_methods.max_chars` 3200→4200，验证 4 份方法论共 3967 字完整加载无截断。注入路径为 Agent.say（群聊+洗稿共用），**未触碰任何配音/TTS 配置**，两条链路边界不变。
+- 2026-08-22（装备配置会话）：**git 版本管理落地**：`git init`（main 分支，仓库级身份 linsh），75 文件 33581 行首次入库（commit def694f）。.gitignore 隔离 config.json（API key）、构建产物（*.exe/dist*/build.bak*）、运行数据（output/mine/knowledge_digests/logs）、依赖库快照（_buildlib/.tools/.tools2）。后续改动请正常 commit，不再手动 .bak 备份。
+- 2026-08-22（装备配置会话）：WorkBuddy 侧配置 3 个自动化：抖音对标账号日报（每日 09:00，账号待配置，读取 output/monitor/accounts/ 与 workslib/accounts.json 的 douyin_id）、爆款晨报·公众号10w+（每日 08:30）、抖音飙升榜·选题雷达（每日 10:00）。
 - 2026-08-22：修复 `scripts/extract_server.py` 中 `_looks_like_body_text` 与 `_is_weak_plain_text` 过度过滤短视频描述的问题，让带话题标签的真实短文案（如 `这个日主多出高智商 #癸水 #癸水男 #癸水女`）能作为原稿正文被提取并进入校对页。
 - 2026-08-22：洗稿入口校对弹窗优化——
   - `.modal-box` 加 `max-height:85vh; overflow-y:auto`，长文案弹窗可滚动，底部「确认」按钮始终可见。
