@@ -4373,6 +4373,50 @@ async function monPollStatus() {
   }, 1200);
 }
 
+// ---- 选题潜力打分（四基因规则，纯前端，不调LLM）----
+// 四基因：情绪钩子 / 信息差 / 身份标签 / 行动触发。每条视频标题命中几个基因 + 数据加权 -> 1-10 分。
+const TOPIC_GENES = {
+  emotion: { label:'情绪', words:['哭','扎心','太准','慌了','惊','后悔','不敢','突然','万万没想到','绝了','救命','太真实','破防','看哭了','心酸','崩溃','激动','泪目','击中','上头','天呐','我天','惊了','泪','难受','揪心','心慌','紧张','兴奋','炸了','爆了','火','不敢看','别再','一定要看','千万别','后悔没','太晚知道','早点知道'] },
+  info:    { label:'信息差', words:['八字','命理','五行','星座','属相','农历','时辰','贵人','小人','桃花','财运','姻缘','缘分','前世','今生','流年','大运','命格','日主','身强','身弱','从格','财库','官杀','比劫','伤官','食神','正印','偏印','七杀','财星','官星','印星','偏财','正财','合婚','和合','旺夫','克夫','克妻','刑','冲','合','穿','墓','库','大运交接','岁运','紫微','面相','手相','风水','太岁','犯太岁','本命年','生肖','桃花运','烂桃花','正缘','偏缘','断缘','绝缘','看手','算命','测字','塔罗','占卜'] },
+  identity:{ label:'身份标签', words:['命理师','算过','看懂','这三种人','这类人','那种命','你是','天生','注定','你是哪种','命里','一生','天生富贵','天生穷','晚婚','早婚','一辈子','这一生','有福之人','无福','女人命','男人命','女生','男生','姐妹','兄弟','属X','生来','自带','别人','你身边','你身边那个','你家','你对象','你老公','你老婆'] },
+  action:  { label:'行动触发', words:['评论区','扣字','想知道','评论区见','收藏','转发','截图','找我','私信','教你','看完','关注','点赞','领取','回复','扣1','扣2','扣3','想知道结果','告诉我','帮你','测测','试一试','照着做','照做','照着','试试','学会','上手','第一步','第一步就','照着这个','直接','照这个'] }
+};
+function scoreTopic(desc, digg, comment) {
+  const t = (desc || '') + '';
+  const hit = [];
+  for (const k in TOPIC_GENES) {
+    const g = TOPIC_GENES[k];
+    const n = g.words.filter(w => t.indexOf(w) >= 0).length;
+    if (n > 0) hit.push({ key:k, label:g.label, n });
+  }
+  // 基因得分：命中 1 个 +3，2 个 +5，3 个 +7，4 个 +8（鼓励聚焦不鼓励堆砌）
+  let score = 0;
+  const gCount = hit.length;
+  if (gCount >= 1) score += 3;
+  if (gCount >= 2) score += 2;
+  if (gCount >= 3) score += 2;
+  if (gCount >= 4) score += 1;
+  // 数据加权
+  digg = Number(digg) || 0; comment = Number(comment) || 0;
+  if (digg >= 100000) score += 2;
+  else if (digg >= 50000) score += 1;
+  if (digg > 0 && comment / digg >= 0.02) score += 1;   // 评论互动率高，更可能触发行动
+  score = Math.max(1, Math.min(10, score));
+  const labels = hit.map(h => h.label).slice(0, 2).join('·');
+  const grade = score >= 8 ? 'high' : score >= 5 ? 'mid' : 'low';
+  return { score, labels, grade, gCount };
+}
+// 潜力分徽章 HTML（评分 + 命中基因标签，tooltip 说明）
+function topicScoreBadge(v) {
+  const s = scoreTopic(v.desc, v.digg_count, v.comment_count);
+  const color = s.grade === 'high' ? '#e23a3a' : s.grade === 'mid' ? '#f5a623' : '#b0b0b0';
+  const geneTip = s.labels ? ('命中基因：' + s.labels) : '未命中明显爆款基因（可能偏干货/小众）';
+  return '<span class="topic-score" title="' + esc(geneTip + ' · ' + s.score + '分，基于标题四基因+互动数据估算，仅作选题参考') + '" style="display:inline-flex;align-items:center;gap:4px;cursor:help">' +
+    '<span style="background:' + color + ';color:#fff;border-radius:6px;padding:2px 7px;font-weight:700;font-size:12px;min-width:22px;text-align:center">' + s.score + '</span>' +
+    (s.labels ? '<span class="muted" style="font-size:11px;color:' + color + '">' + esc(s.labels) + '</span>' : '') +
+    '</span>';
+}
+
 async function monLoadReport() {
   const box = $('monReport');
   try {
@@ -4385,12 +4429,13 @@ async function monLoadReport() {
     html += '<div class="card" style="margin-bottom:14px">' +
       '<div class="card-title">🏆 高赞视频榜（近 90 天 · Top ' + top.length + ' · 去重 ' + (rp.dedup_hits || 0) + ' 条搬运）</div>';
     if (top.length) {
-      html += '<div class="table-wrap"><table class="mon-table"><tr><th></th><th>账号</th><th>视频标题</th><th class="num">点赞</th><th class="num">评论</th><th class="num">发布时间</th></tr>' +
+      html += '<div class="table-wrap"><table class="mon-table"><tr><th></th><th>账号</th><th>视频标题</th><th class="num">潜力</th><th class="num">点赞</th><th class="num">评论</th><th class="num">发布时间</th></tr>' +
         top.map((v, i) => {
           const rank = i === 0 ? 'r1' : i === 1 ? 'r2' : i === 2 ? 'r3' : '';
           return '<tr><td><span class="mon-rank ' + rank + '">' + (i + 1) + '</span></td>' +
             '<td style="white-space:nowrap">' + esc(v.author_nickname || '') + '</td>' +
             '<td class="mon-video-desc" data-aweme-id="' + esc(v.aweme_id || '') + '" data-transcript="' + esc((v.transcript && v.transcript.text) ? v.transcript.text : '') + '" data-transcript-src="' + esc((v.transcript && v.transcript.source) ? v.transcript.source : '') + '" data-digg="' + (v.digg_count || 0) + '" data-comment="' + (v.comment_count || 0) + '" data-share="' + (v.share_count || 0) + '" title="点击查看视频文案（可编辑/洗稿）" onclick="monShowDesc(this)">' + esc(v.desc || '（无文字）') + '</td>' +
+            '<td class="num" style="white-space:nowrap">' + topicScoreBadge(v) + '</td>' +
             '<td class="digg">' + fmtNum(v.digg_count || 0) + '</td>' +
             '<td class="num">' + fmtNum(v.comment_count || 0) + '</td>' +
             '<td class="num" style="white-space:nowrap;color:var(--c-text-mute);font-size:12px">' + esc((v.create_time || '').slice(5, 16)) + '</td></tr>';
