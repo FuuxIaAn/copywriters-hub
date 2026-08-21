@@ -1,0 +1,36 @@
+# 密钥配置不入库
+config.json
+
+# 输出文件与运行数据（可再生成）
+output/
+mine/
+knowledge_digests/
+logs/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 小红书抓取组件（MediaCrawler 运行时依赖，体积大不入库）
+MediaCrawler/
+mc.zip
+
+# 打包依赖库快照（requirements.txt 可重建）
+_buildlib/
+.tools/
+.tools2/
+.cache/
+
+# 构建产物与大文件
+*.exe
+*.zip
+dist/
+dist.bak.*/
+build.bak.*/
+exe_backup/
+backup_old/
+
+# 会话与本地工作区状态
+.workbuddy/
