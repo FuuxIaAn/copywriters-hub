@@ -461,6 +461,13 @@ def _extract_one_video(video: dict, api_config: dict, cookie: str | None = None,
             except OSError: pass
         return "", [], None, fail_reason or "未提取到文案"
 
+    # 若最终只剩 desc 标题（无实质口播正文），对配音工坊/口播提取来说不算成功
+    if text == desc:
+        if wav_path:
+            try: os.remove(wav_path)
+            except OSError: pass
+        return "", [], None, fail_reason or "仅提取到标题，未拿到口播正文"
+
     # 区分发言人（自适应分级：文本路线不合格时自动降级到音频辅助路线）
     if cues:
         segments = _detect_speakers(text, api_config, cues=cues, audio_path=wav_path)

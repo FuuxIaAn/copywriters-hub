@@ -1125,6 +1125,11 @@ def _presegment_text(text: str) -> list:
     """按自然语句和换行预分割文本，返回短句列表。
     优先保留字幕本身的换行，再按中文/英文句末标点切分；
     对无标点的超长句，再按逗号/顿号/长度进一步切分，避免整段挤成一句。
+
+    注意：阈值要保守——切太碎会导致 LLM 面对一堆碎片无法正确判断说话人，
+    最终整段被标成 A（f2 视频通常 1 分钟就有 100+ 碎片，体验崩坏）。
+    经验值：有句末标点的句子直接收尾；无标点超长句才按逗号切，标点跟随前句，
+    剩余仍 >80 字才按 80 字硬切。
     """
     if not text:
         return []
@@ -1145,26 +1150,27 @@ def _presegment_text(text: str) -> list:
                 buf = ""
         if buf.strip():
             result.append(buf.strip())
-    # 二次细分：无句末标点的超长句（如 ASR 长串），按逗号/顿号/省略号切，再按长度硬切
+    # 二次细分：只对无句末标点的超长句（>50字）按逗号/顿号切，再按长度兜底
+    # 调高阈值（24→50）后，普通 ASR 长句不再被切碎成 N 个逗号短语
     refined = []
     for s in result:
-        if re.search(r'[。！？；.!?;]', s) or len(s) <= 24:
+        if re.search(r'[。！？；.!?;]', s) or len(s) <= 50:
             refined.append(s)
             continue
-        # 有逗号/顿号 → 在逗号/顿号处切（标点跟随前句）
+        # 有逗号/顿号 → 在逗号/顿号处切（标点跟随前句），但每段至少保留 12 字避免碎片
         pieces = re.split(r'([，,、…]+)', s)
         buf = ""
         for p in pieces:
             buf += p
-            if re.search(r'[，,、…]+$', p) and len(buf.strip()) >= 4:
+            if re.search(r'[，,、…]+$', p) and len(buf.strip()) >= 12:
                 refined.append(buf.strip())
                 buf = ""
         if buf.strip():
-            # 剩余仍超长则按长度硬切
+            # 剩余仍超长则按长度硬切（80 字一截，留足语义空间）
             rest = buf.strip()
-            if len(rest) > 40:
-                for i in range(0, len(rest), 40):
-                    refined.append(rest[i:i + 40])
+            if len(rest) > 80:
+                for i in range(0, len(rest), 80):
+                    refined.append(rest[i:i + 80])
             else:
                 refined.append(rest)
     # 过滤无意义过短碎片
@@ -1234,6 +1240,23 @@ def _speaker_profile_prompt(text: str, cues: list | None = None) -> str:
     )
 
 
+def _looks_like_title_only(text: str) -> bool:
+    """判断文本是否只是视频标题/简介，没有实质口播正文。
+
+    特征：过短、无句末标点、带话题标签/下划线/纯口号。
+    这类文本不应该被当成「成功提取到口播正文」去区分发言人。
+    """
+    if not text:
+        return True
+    t = text.strip()
+    if len(t) < 30 and not re.search(r"[。！？；.!?;]", t):
+        return True
+    # 极短且只有话题/下划线/空格/中英文数字
+    if len(t) < 50 and (t.count("#") >= 1 or t.count("_") >= 1):
+        return True
+    return False
+
+
 def _detect_speakers(text: str, api_config: dict, cues: list | None = None,
                      audio_path: str = "") -> list:
     """自适应分级区分发言人：
@@ -1249,6 +1272,9 @@ def _detect_speakers(text: str, api_config: dict, cues: list | None = None,
         return [{"speaker": "A", "text": text}]
     # 极短文本（<5字）直接单段返回，不浪费 LLM 调用
     if len(text) < 5:
+        return [{"speaker": "A", "text": text}]
+    # 只有标题/简介时，也直接单段返回并标记，避免 UI 显示「✅ 1段对话」误导
+    if _looks_like_title_only(text):
         return [{"speaker": "A", "text": text}]
 
     # ── 第一轮：纯文本 LLM 标注 ──
@@ -1396,9 +1422,8 @@ def _detect_speakers_text(text: str, api_config: dict, cues: list | None = None)
                     return valid
             except Exception as e:
                 print(f"[extract] 发言人标注结果解析失败: {e}")
-
     # LLM 调用失败时保留源句，不凭空把独白交替成双人。
-    # 有明确问答标点/称呼时才采用交替兜底，否则默认独白 A。
+    # 有明确问答标点/称呼/人称变化时才采用交替兜底，否则默认独白 A。
     dialogue_hint = _looks_like_dialogue(sentences)
     print(f"[extract] 文本路线 LLM 调用失败，使用{'交替' if dialogue_hint else '单人'} fallback")
     return [{"speaker": "A" if not dialogue_hint or i % 2 == 0 else "B", "text": s}
@@ -1469,14 +1494,19 @@ def _looks_like_dialogue(sentences: list) -> bool:
 
     Short-video subtitles often omit punctuation, so requiring a literal ``?``
     caused real Q&A to be permanently flattened into speaker A.
+
+    扩展：命理/情感/咨询类口播中，常见「师傅-求测者」对话模式，
+    加入更多问诊/求测/回应特征词。
     """
     joined = "".join(sentences or [])
     if len(sentences or []) < 2:
         return False
-    has_question = bool(re.search(r"[？?]|(吗|呢|怎么|为什么|多少|哪里|啥时候|能不能|是不是)", joined))
-    has_response = bool(re.search(r"(是的|不是|因为|好的|嗯|对的|真的吗|然后呢|师傅|老师|您好|我说|你说|我觉得|其实)", joined))
+    has_question = bool(re.search(r"[？?]|(吗|呢|怎么|为什么|多少|哪里|啥时候|能不能|是不是|帮我|请问|看看|算一下|想问问|问一下|想请教|您看|您说)", joined))
+    has_response = bool(re.search(r"(是的|不是|因为|好的|嗯|对的|真的吗|然后呢|师傅|老师|您好|我说|你说|我觉得|其实|可以|这样|对|没错|嗯嗯|行|好|好吧)", joined))
     alternating_pronouns = bool(re.search(r"我.{0,18}(你|您)|你.{0,18}(我|他|她)", joined))
-    return (has_question and has_response) or alternating_pronouns or bool(re.search(r"(师傅|老师|您好)", joined))
+    # 命理咨询类常见对话触发词（师傅/求测者/八字/命盘/财运等）
+    consultation_terms = bool(re.search(r"(师傅|老师|大师|先生|您好|求测|八字|命理|命盘|财运|姻缘|桃花|合婚|流年|大运|日主|五行|属相|星座|手相|面相|紫微|塔罗|占卜|卦|算命|测算)", joined))
+    return (has_question and has_response) or alternating_pronouns or consultation_terms
 
 
 # ── 音频辅助路线 ──
