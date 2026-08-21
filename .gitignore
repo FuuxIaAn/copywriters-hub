@@ -28,6 +28,7 @@ _buildlib/
 *.zip
 dist/
 dist.bak.*/
+build/
 build.bak.*/
 exe_backup/
 backup_old/

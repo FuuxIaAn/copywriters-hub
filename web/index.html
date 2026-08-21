@@ -4177,6 +4177,15 @@ async function loadMonitor() {
       '<div class="muted" id="monProgressText" style="font-size:12px;color:var(--primary)"></div>' +
     '</div>' +
     '<div id="monReport"></div>' +
+    '<div class="card" style="margin-bottom:14px">' +
+      '<div class="card-title">🎯 选题雷达 · 内置晨报</div>' +
+      '<div class="muted" style="font-size:12px;color:var(--c-text-mute);margin-bottom:8px">把对标高赞榜 + 撞车检测 + AI 分析成「今日值得跟的选题 Top」，带口播切入角度。一键生成，落盘 <code>output/monitor/radar/</code>，可反复生成对比。</div>' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+        '<button class="btn-primary" id="radarGen" style="background:#ff9500">✨ 生成选题雷达</button>' +
+        '<span class="muted" id="radarTip" style="font-size:12px;color:var(--c-text-mute)"></span>' +
+      '</div>' +
+      '<div id="radarOut" style="margin-top:10px"></div>' +
+    '</div>' +
     '<button class="mon-acc-btn" id="monAccToggle">👥 监控账号（<span id="monAccCount">0</span>）</button>' +
     '<div class="mon-drawer-mask" id="monDrawerMask"></div>' +
     '<div class="mon-drawer" id="monDrawer">' +
@@ -4188,6 +4197,9 @@ async function loadMonitor() {
   $('monFetch').addEventListener('click', monStartFetch);
   $('monUrl').addEventListener('keydown', e => { if (e.key === 'Enter') monAddAccount(); });
   $('monUrl').addEventListener('blur', monResolveAccount);
+  // 选题雷达：生成 + 展示最近一份
+  $('radarGen').addEventListener('click', monGenRadar);
+  monLoadRadarLatest();
   // 监控账号抽屉开关
   const drawer = $('monDrawer'), mask = $('monDrawerMask');
   const closeDrawer = () => { drawer.classList.remove('show'); mask.classList.remove('show'); };
@@ -4484,6 +4496,65 @@ async function monLoadReport() {
   } catch (e) {
     box.innerHTML = '<div class="empty">报告加载失败：' + esc(e.message) + '</div>';
   }
+}
+
+// ---- 选题雷达 · 内置晨报 ----
+// 生成：把对标高赞榜 + 撞车检测 + LLM 分析成选题建议日报（落盘 output/monitor/radar/）
+async function monGenRadar() {
+  const btn = $('radarGen'), tip = $('radarTip'), out = $('radarOut');
+  if (!btn || !tip || !out) return;
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ 正在分析…';
+  tip.textContent = '';
+  try {
+    const r = await post('/api/radar/generate', {});
+    if (!r.ok) { tip.textContent = '⚠ ' + (r.error || '生成失败'); return; }
+    // 展示报告（Markdown -> 简易 HTML）
+    out.innerHTML = renderRadarMd(r.report);
+    tip.textContent = r.fallback ? '（LLM 未启用，已输出原始数据兜底，可手动判断）' : '✅ 已生成 · 落盘 ' + (r.path || '');
+  } catch (e) {
+    tip.textContent = '⚠ 生成失败：' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
+}
+// 读取最近一份选题雷达，进入页面即展示
+async function monLoadRadarLatest() {
+  const out = $('radarOut'), tip = $('radarTip');
+  if (!out) return;
+  try {
+    const r = await fetch('/api/radar/latest').then(x => x.json());
+    if (r.ok && r.has) {
+      out.innerHTML = renderRadarMd(r.content);
+      if (tip) tip.textContent = '📄 最近一份：' + (r.filename || '');
+    }
+  } catch (_) {}
+}
+// 简易 Markdown -> HTML（处理标题/粗体/列表，足够展示选题雷达）
+function renderRadarMd(md) {
+  if (!md) return '<div class="empty">暂无内容</div>';
+  const lines = String(md).split('\n');
+  let h = '';
+  for (const raw of lines) {
+    const line = raw.replace(/\r/g, '');
+    if (/^#{1,4}\s/.test(line)) {
+      const lv = line.match(/^#+/)[0].length;
+      const txt = esc(line.replace(/^#+\s*/, ''));
+      h += '<div style="font-weight:700;font-size:' + (lv === 1 ? 15 : 13.5) + 'px;color:#ff9500;margin:10px 0 6px">' + txt + '</div>';
+    } else if (/^\s*[-*]\s+/.test(line)) {
+      h += '<div style="padding-left:14px;font-size:13px;line-height:1.7;color:var(--c-text)">• ' + esc(line.replace(/^\s*[-*]\s+/, '')) + '</div>';
+    } else if (/^\s*\d+\.\s+/.test(line)) {
+      h += '<div style="padding-left:14px;font-size:13px;line-height:1.7;color:var(--c-text)">' + esc(line.replace(/^\s*(\d+\.)\s*/, '$1 ')) + '</div>';
+    } else if (/^\s*\|/.test(line)) {
+      // 表格行简化成纯文本
+      h += '<div style="font-size:12.5px;color:var(--c-text-mute);line-height:1.6">' + esc(line.split('|').filter(Boolean).join(' | ').trim()) + '</div>';
+    } else if (line.trim()) {
+      h += '<div style="font-size:13px;line-height:1.7;color:var(--c-text)">' + esc(line) + '</div>';
+    } else {
+      h += '<div style="height:6px"></div>';
+    }
+  }
+  return '<div class="radar-body" style="background:var(--c-bg-soft);border:1px solid var(--c-border);border-radius:10px;padding:12px 14px">' + h + '</div>';
 }
 
 function monShowDesc(el) {

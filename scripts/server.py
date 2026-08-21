@@ -55,6 +55,7 @@ import data_insight_store  # noqa: E402
 import skill_methods  # noqa: E402
 import data_import  # noqa: E402
 import monitor_server  # noqa: E402
+import radar_server  # noqa: E402
 import tts_server  # noqa: E402
 import extract_server  # noqa: E402
 import agent_chat_server  # noqa: E402
@@ -3712,6 +3713,18 @@ def api_monitor_alerts():
 def api_monitor_alerts_read():
     data = request.get_json(force=True, silent=True) or {}
     return jsonify(monitor_server.mark_alerts_read(OUTPUT_DIR, data.get("id")))
+
+
+# ---------------------------------------------------------------- 选题雷达（内置晨报）
+
+@app.route("/api/radar/generate", methods=["POST"])
+def api_radar_generate():
+    return jsonify(radar_server.generate_radar(BASE_DIR, OUTPUT_DIR))
+
+
+@app.route("/api/radar/latest", methods=["GET"])
+def api_radar_latest():
+    return jsonify(radar_server.latest_radar(OUTPUT_DIR))
 
 
 # ---------------------------------------------------------------- 配音工坊（IndexTTS-2.5）
