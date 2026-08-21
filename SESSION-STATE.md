@@ -2,13 +2,14 @@
 
 ## Current Task
 
-修复洗稿工坊的分享链接入口：支持整段抖音/小红书转发文本，自动提取文案和互动数据，提取后必须先校对，确认后才启动洗稿。
+把 WorkBuddy 侧能力内建进 exe 自己（不开 WorkBuddy）：选题潜力打分列、内置选题雷达晨报、口播文案强化。已全部落地并 commit（见 Completed）。
 
 ## Non-negotiable Product Boundaries
 
 - 洗稿工坊与配音工坊是两条独立链路，不能串联。
 - 洗稿问题只报告洗稿代码与洗稿测试；不要引用配音测试作为洗稿完成证明。
 - 配音相关状态、音色、任务队列不得影响洗稿流程。
+- 所有文案产出面向「口播」；对标视频 → 口播逐字稿 → 洗稿/专家口播改写，全程不碰配音工坊。
 
 ## Current Decisions
 
@@ -23,6 +24,9 @@
 - 2026-08-22（装备配置会话）：**新增第 4 份技能方法论 `knowledge/skills_methods/viral-topic-methods.md`**（爆款四基因 + 8 维打分卡 + 传播锚点，来源：WorkBuddy 专家「爆款炼金师」蒸馏；不与已有 title-formulas 重复，拼齐「选题→标题→改写→合规」四段链路）。config.json `skill_methods.max_chars` 3200→4200，验证 4 份方法论共 3967 字完整加载无截断。注入路径为 Agent.say（群聊+洗稿共用），**未触碰任何配音/TTS 配置**，两条链路边界不变。
 - 2026-08-22（装备配置会话）：**git 版本管理落地**：`git init`（main 分支，仓库级身份 linsh），75 文件 33581 行首次入库（commit def694f）。.gitignore 隔离 config.json（API key）、构建产物（*.exe/dist*/build.bak*）、运行数据（output/mine/knowledge_digests/logs）、依赖库快照（_buildlib/.tools/.tools2）。后续改动请正常 commit，不再手动 .bak 备份。
 - 2026-08-22（装备配置会话）：WorkBuddy 侧配置 3 个自动化：抖音对标账号日报（每日 09:00，账号待配置，读取 output/monitor/accounts/ 与 workslib/accounts.json 的 douyin_id）、爆款晨报·公众号10w+（每日 08:30）、抖音飙升榜·选题雷达（每日 10:00）。
+- 2026-08-22（内建强化会话）：**选题潜力打分列**（commit 8f0eace）：对标监控高赞榜新增「潜力」列，纯前端四基因（情绪钩子/信息差/身份标签/行动触发）规则 + 互动数据加权出 1-10 分徽章 + 命中基因标签，零 LLM 零后端，仅增强选题目录。
+- 2026-08-22（内建强化会话）：**内置选题雷达·晨报**（commit 7730a42）：新增 `scripts/radar_server.py`，聚合对标监控高赞榜 + 撞车检测 + LLM 分析，生成「今日值得跟选题 Top5 + 撞车警示 + 口播切入角度」日报落盘 output/monitor/radar/。server.py 注册 /api/radar/generate、/api/radar/latest。前端对标监控视图新增「🎯 选题雷达」卡片。LLM 未配置时优雅兜底输出原始数据。.gitignore 补 build/。
+- 2026-08-22（内建强化会话）：**口播文案强化**（commit e7827b7）：对标视频弹窗（monShowDesc/monAcctOpenVid）新增「💬 专家口播改写」按钮，新增 newWorkFlowWithScript 把逐字稿预填进「新建口播文稿」一键送 8 位专家群聊重做口播；修复新增函数时误删 bindSession 签名。整文件 JS 语法校验通过。
 - 2026-08-22：修复 `scripts/extract_server.py` 中 `_looks_like_body_text` 与 `_is_weak_plain_text` 过度过滤短视频描述的问题，让带话题标签的真实短文案（如 `这个日主多出高智商 #癸水 #癸水男 #癸水女`）能作为原稿正文被提取并进入校对页。
 - 2026-08-22：洗稿入口校对弹窗优化——
   - `.modal-box` 加 `max-height:85vh; overflow-y:auto`，长文案弹窗可滚动，底部「确认」按钮始终可见。
