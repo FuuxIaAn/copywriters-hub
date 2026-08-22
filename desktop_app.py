@@ -188,6 +188,15 @@ def main() -> None:
     except Exception as e:  # noqa: BLE001
         print(f"[desktop] webview 不可用: {e}")
         sys.exit(1)
+    # onefile 打包下，WebView2 若用默认临时目录可能初始化失败导致白屏。
+    # 把 WebView2 用户数据目录固定到应用数据目录（持久化、可写、不随 exe 解压变化）。
+    try:
+        import webview as _wv
+        _sp = os.path.join(os.environ["WB_DATA_DIR"], "webview_data")
+        os.makedirs(_sp, exist_ok=True)
+        _wv.storage_path = _sp
+    except Exception:  # noqa: BLE001
+        pass
 
     class Api:
         """暴露给前端 JS 的原生能力（window.pywebview.api）。"""

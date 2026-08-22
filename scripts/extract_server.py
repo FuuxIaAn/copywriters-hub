@@ -1774,6 +1774,12 @@ def _detect_speakers_audio(text: str, api_config: dict, cues: list | None,
                 segments = json.loads(match.group())
                 valid = _normalize_labeled_segments(segments, sentences)
                 if valid:
+                    # 与文本路线一致：音频路线若 LLM 把整段双人问答全部贴成 A，
+                    # 但有明确问答/咨询对话信号时，触发奇偶交替 A/B 兜底，
+                    # 避免「师傅-求测者」咨询视频被永久判成单人独白。
+                    if len({x["speaker"] for x in valid}) == 1 and _looks_like_dialogue(sentences):
+                        return [{"speaker": "A" if i % 2 == 0 else "B", "text": s}
+                                for i, s in enumerate(sentences)]
                     return valid
             except Exception as e:
                 print(f"[extract] 音频辅助标注结果解析失败: {e}")

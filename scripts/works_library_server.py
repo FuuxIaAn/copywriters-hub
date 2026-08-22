@@ -714,6 +714,11 @@ def get_videos(output_dir: str, account_id: str) -> dict:
     if not acc:
         return {"ok": False, "error": "账号不存在"}
     videos = wstore.load_videos(output_dir, account_id)
+    # 历史数据修复（无需重新扒文案）：
+    # 1) 若整段全部归同一发言人 A，但有明确问答/咨询对话信号 → 奇偶交替重建 A/B
+    #    （修复旧版把「师傅-求测者」咨询视频全部标成 A 的问题）
+    # 2) 否则合并相邻同发言人（修复同发言人分多段）
+    _fix_video_segments(videos)
     return {"ok": True, "account": acc, "videos": videos}
 
 
@@ -721,7 +726,35 @@ def get_video_detail(output_dir: str, account_id: str, aweme_id: str) -> dict:
     v = wstore.get_video(output_dir, account_id, aweme_id)
     if not v:
         return {"ok": False, "error": "作品不存在"}
+    _fix_video_segments([v])
     return {"ok": True, "video": v}
+
+
+def _fix_video_segments(videos: list) -> None:
+    """就地修复一批视频的 segments（历史数据，不重新调 LLM）。"""
+    try:
+        from extract_server import _merge_consecutive_speakers as _mcs
+        from extract_server import _looks_like_dialogue as _lld
+    except Exception:  # noqa: BLE001
+        return
+    for v in videos:
+        segs = v.get("segments")
+        if not isinstance(segs, list) or len(segs) < 2:
+            continue
+        # 情况1：全 A 但有对话信号 → 奇偶交替重建（师傅-求测者咨询视频）
+        speakers = {str(s.get("speaker") or "A").strip().upper() for s in segs}
+        texts = [str(s.get("text") or "") for s in segs]
+        if len(speakers) == 1 and _lld(texts):
+            # 仅当确实存在交替信号才重建；且文本不空
+            v["segments"] = [
+                {"speaker": "A" if i % 2 == 0 else "B", "text": texts[i]}
+                for i in range(len(segs))
+            ]
+            continue
+        # 情况2：合并相邻同发言人
+        merged = _mcs(segs)
+        if merged and len(merged) < len(segs):
+            v["segments"] = merged
 
 
 def delete_video(output_dir: str, account_id: str, aweme_id: str, exclude: bool = False) -> dict:
