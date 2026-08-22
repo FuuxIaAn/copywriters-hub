@@ -8738,7 +8738,16 @@ async function openRewrite(rid, quiet){
   rwSessionCache = s;   // 缓存，供 SSE 事件局部刷新全文流使用
   const detail = $('rwDetail');
   if (!detail) return;
-  detail.innerHTML = rwDetailHtml(s);
+  // 渲染详情；任何 JS 异常都捕获并显示可见错误，绝不让整页空白
+  let html;
+  try {
+    html = rwDetailHtml(s);
+  } catch (e) {
+    console.error('[rewrite] 渲染详情出错:', e);
+    detail.innerHTML = '<div class="rw-empty">⚠ 渲染详情出错：' + esc(e && e.message ? e.message : e) + '<br><br><button class="btn-ghost" onclick="openRewrite(\'' + rid + '\', true)">重试</button></div>';
+    return;
+  }
+  detail.innerHTML = html;
   if (s.status === 'running' && rwSid) {
     // 有进行中的流程：连接 SSE（重放历史 + 实时接收）
     connectRwStream(rwSid);
@@ -8789,7 +8798,7 @@ function rwSentenceFlowHtml(rid, r, p, agent){
 function rwSplitSentences(text){
   if (!text) return [];
   const parts = String(text).split(/(?<=[。！？!?…\n])|(?<=\n)/);
-  return parts.map(s => s.trim()).filter(s => s.length >= 2);
+  return parts.map(s => s.trim()).filter(s => typeof s === 'string' && s.length >= 2);
 }
 
 function rwDetailHtml(s){
@@ -8833,21 +8842,26 @@ function rwDetailHtml(s){
 function rwFullTextHtml(rid, regions, parts, untouchable){
   let seq = 0;
   let html = '';
-  const untSet = new Set((untouchable || []).map(u => (u.sentence || '').replace(/[\s\u3000]+/g, '')));
-  for (const r of regions) {
-    const p = parts[r.id] || {};
+  const untSet = new Set((untouchable || []).map(u => (u && u.sentence ? u.sentence : '').replace(/[\s\u3000]+/g, '')));
+  for (const r of regions || []) {
+    if (!r) continue;
+    const p = (parts && parts[r.id]) || {};
     const agent = p.agent || '';
     const sentences = p.sentences && p.sentences.length
       ? p.sentences
-      : (rwSplitSentences(p.text || '') || []);
+      : (rwSplitSentences(p.text) || []);
     if (!sentences.length) continue;
     const tagColor = agent ? colorOf(agent) : '#94A3B8';
     // 分区小标题（弱化）
-    html += '<div class="rw-section-hd">' + esc(r.label) + (agent ? '<span class="rw-section-tag" style="background:' + tagColor + '">' + esc(agent) + '</span>' : '') + '</div>';
+    html += '<div class="rw-section-hd">' + esc(r.label || r.id) + (agent ? '<span class="rw-section-tag" style="background:' + tagColor + '">' + esc(agent) + '</span>' : '') + '</div>';
     for (let i = 0; i < sentences.length; i++) {
       const s = sentences[i];
-      const safe = esc(s);
-      const norm = s.replace(/[\s\u3000]+/g, '');
+      // 防御：句子可能是 null/undefined/非字符串，统一转字符串并跳过空句
+      if (s === null || s === undefined || (typeof s !== 'string' && typeof s !== 'number')) continue;
+      const str = String(s).trim();
+      if (!str) continue;
+      const safe = esc(str);
+      const norm = str.replace(/[\s\u3000]+/g, '');
       const isUnt = untSet.has(norm);
       const untCls = isUnt ? ' rw-s-untouchable' : '';
       const untIcon = isUnt ? '<span class="rw-s-unt-icon" title="不可动句子（全员共识）">🔒</span>' : '';
