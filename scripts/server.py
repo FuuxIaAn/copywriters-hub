@@ -84,6 +84,13 @@ app = Flask(__name__, static_folder=WEB_DIR)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
+# 模块级加载手动配置的微博 cookie（桌面/CLI 两种启动方式都会走到这里，
+# 供作品库/对标监控抓微博主页使用；works_library_server 依赖已 import）
+try:
+    works_library_server.load_weibo_cookie(OUTPUT_DIR)
+except Exception as e:  # noqa: BLE001
+    print(f"  [weibo] 微博 Cookie 加载跳过：{e}")
+
 
 @app.after_request
 def _disable_cache(resp):
@@ -4212,6 +4219,16 @@ def api_workslib_import():
     data = request.get_json(force=True, silent=True) or {}
     return jsonify(works_library_server.import_to_extract(
         OUTPUT_DIR, data.get("account_id", ""), data.get("aweme_id", "")))
+
+
+@app.route("/api/settings/weibo_cookie", methods=["GET", "POST"])
+def api_settings_weibo_cookie():
+    """微博主页抓取登录态 cookie 管理：GET 查状态，POST 保存/清除。"""
+    if request.method == "POST":
+        data = request.get_json(force=True, silent=True) or {}
+        return jsonify(works_library_server.save_weibo_cookie(
+            OUTPUT_DIR, data.get("cookie", "")))
+    return jsonify(works_library_server.get_weibo_cookie_config(OUTPUT_DIR))
 
 
 # ---------------------------------------------------------------- 语音转文字（ASR）

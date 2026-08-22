@@ -4209,6 +4209,8 @@ async function loadSettings(){
       '<button class="btn-ghost" id="openApiSettings"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-key"/></svg></span> 打开 API 设置</button></div>' +
     '<div class="set-row"><div><div class="lbl">数据存放</div><div class="desc" style="word-break:break-all">统计、作品库、学习档案都保存在数据目录下，不会随程序更新丢失<br><code style="font-size:11px;color:var(--c-text-sub);background:var(--c-bg-soft);padding:2px 6px;border-radius:4px;display:inline-block;margin-top:4px">' + esc(dataPath) + '</code></div></div>' +
       '<button class="btn-ghost" id="moveDataDir"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-edit"/></svg></span> 迁移到其他盘</button></div>' +
+    '<div class="set-row"><div><div class="lbl">微博 Cookie</div><div class="desc" id="setWeiboCookieDesc">抓取微博主页视频需要微博登录态。默认自动读浏览器，读取失败时请手动粘贴。</div></div>' +
+      '<button class="btn-ghost" id="setWeiboCookie"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-key"/></svg></span> 配置微博 Cookie</button></div>' +
     '<div class="set-row"><div><div class="lbl">通知中心</div><div class="desc">采纳、复盘、留存分析、洗稿保存等关键事件都会在这里提醒，未读红点显示在右上角铃铛</div></div>' +
       '<button class="btn-ghost" id="clearNotify">清空通知</button></div>' +
     '<div class="set-row"><div><div class="lbl">快捷操作</div><div class="desc">群聊输入框支持 Ctrl+Enter 发送；采纳后 6 秒内可撤销；作品库支持勾选批量归档</div></div></div>' +
@@ -4230,6 +4232,24 @@ async function loadSettings(){
   });
   const mdd = $('moveDataDir');
   if (mdd) mdd.addEventListener('click', moveDataDir);
+  // 微博 Cookie 配置：加载当前状态 + 绑定配置按钮
+  (async () => {
+    try {
+      const wc = await fetch('/api/settings/weibo_cookie').then(r => r.json());
+      const desc = $('setWeiboCookieDesc');
+      if (desc) {
+        let txt = '抓取微博主页视频需要微博登录态。';
+        if (wc && wc.ok) {
+          if (wc.configured) txt += ' 已手动配置 Cookie，立即生效。';
+          else if (wc.available) txt += ' 已自动读取到浏览器登录态。';
+          else txt += ' <b style="color:#ff3b30">当前没有可用微博登录态</b>（浏览器未登录或无法自动读取），抓微博会失败，请点右侧手动配置。';
+        }
+        desc.innerHTML = txt;
+      }
+    } catch (_) {}
+  })();
+  const swc = $('setWeiboCookie');
+  if (swc) swc.addEventListener('click', configWeiboCookie);
 }
 // 数据目录迁移：把数据从 C 盘移到其他盘（如 E 盘），避免占用系统盘/桌面
 async function moveDataDir(){
@@ -4254,6 +4274,33 @@ async function moveDataDir(){
     showToast('⚠ ' + (r.error || '迁移失败'));
   }
 }
+async function configWeiboCookie(){
+  // 读取当前配置状态
+  let cur = '';
+  try {
+    const wc = await fetch('/api/settings/weibo_cookie').then(r => r.json());
+    if (wc && wc.ok && wc.configured) cur = '（已配置，保存时间：' + (wc.saved_at || '未知') + '）';
+  } catch(_){}
+  const f = await openModal({
+    title: '🔑 配置微博 Cookie',
+    sub: '抓取微博主页视频需要登录态。若自动读取失败，请手动粘贴：\n\n1. 打开浏览器并登录 weibo.com（任意账号即可）\n2. 按 F12 打开开发者工具 → Network → 刷新页面\n3. 在任意请求的 Request Headers 里找到 Cookie 整段复制\n4. 粘贴到下面（关键字段是 SUB）\n\n' + cur,
+    fields: [
+      { name:'cookie', label:'微博 Cookie（整段，含 SUB=）', type:'textarea', rows:4, placeholder:'SINAGLOBAL=...; SUB=...; ...' },
+      { name:'action', label:'操作', type:'radio', options:[{v:'save',label:'保存 Cookie'},{v:'clear',label:'清除配置（回退自动读取）'}], value:'save' },
+    ],
+    okText: '保存'
+  });
+  if (!f) return;
+  if (f.action === 'clear') f.cookie = '';
+  const r = await post('/api/settings/weibo_cookie', { cookie: f.cookie });
+  if (r.ok) {
+    showToast('✅ ' + (r.message || '已保存'));
+    loadSettings();
+  } else {
+    showToast('⚠ ' + (r.error || '保存失败'));
+  }
+}
+
 async function editContext(){
   let c = {};
   try{ const d = await fetch('/api/context').then(r=>r.json()); c = d.context || {}; }catch(_){}

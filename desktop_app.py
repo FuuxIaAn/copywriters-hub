@@ -21,6 +21,52 @@ import threading
 import time
 import urllib.request
 
+# 单实例互斥锁（命名 mutex）：防止桌面同时打开多个 exe 实例。
+# 若已存在实例 → 尝试激活旧窗口后退出；不占用端口、不启服务。
+_SINGLE_INSTANCE_MUTEX = "Local\\靓仔文案工作台_SingleInstance"
+
+
+def _acquire_single_instance() -> bool:
+    """尝试获取单实例互斥锁。返回 True 表示抢到了（可继续启动），False 表示已有实例运行中。"""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        # use_last_error=True 才能让 CreateMutexW 的 ERROR_ALREADY_EXISTS 被 get_last_error 捕获
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        # CreateMutexW 返回 NULL 表示失败；ERROR_ALREADY_EXISTS(183) 表示已存在
+        CreateMutexW = kernel32.CreateMutexW
+        CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+        CreateMutexW.restype = wintypes.HANDLE
+        h = CreateMutexW(None, False, _SINGLE_INSTANCE_MUTEX)
+        if not h:
+            return True  # 获取失败时不影响启动（避免 lock 异常阻塞老板）
+        ERROR_ALREADY_EXISTS = 183
+        if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
+            # 已有实例在跑 → 尝试激活旧窗口（找到主窗口并置前）
+            try:
+                FindWindowW = user32.FindWindowW
+                FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
+                FindWindowW.restype = wintypes.HWND
+                SetForegroundWindow = user32.SetForegroundWindow
+                SetForegroundWindow.argtypes = [wintypes.HWND]
+                SetForegroundWindow.restype = wintypes.BOOL
+                ShowWindow = user32.ShowWindow
+                ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+                ShowWindow.restype = wintypes.BOOL
+                hwnd = FindWindowW(None, "靓仔文案工作台")
+                if hwnd:
+                    ShowWindow(hwnd, 9)   # SW_RESTORE
+                    SetForegroundWindow(hwnd)
+            except Exception:  # noqa: BLE001
+                pass
+            return False
+        return True
+    except Exception:  # noqa: BLE001
+        # 非 Windows 或 ctypes 不可用 → 不阻塞启动（开发模式可能跑在非 Windows）
+        return True
+
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS_DIR = os.path.join(BASE_DIR, "scripts")
 
@@ -159,6 +205,12 @@ def main() -> None:
     ap.add_argument("--autoclose", type=int, default=0,
                     help="N 秒后自动关闭窗口（自动化测试用）")
     args = ap.parse_args()
+
+    # 单实例守护：自检/测试模式允许并发；正常运行时若已有 exe 在运行，
+    # 激活旧窗口并退出，不重复启动服务占端口。
+    if not args.probe and not args.autoclose and not _acquire_single_instance():
+        print("[desktop] 已有一个实例在运行，激活旧窗口并退出")
+        sys.exit(0)
 
     port = _find_free_port(args.port)
     threading.Thread(target=_start_server, args=(port,), daemon=True).start()

@@ -1075,7 +1075,7 @@ def _llm_style_annotate(sentence_meta: list, speaker: str, api_config: dict) -> 
         f"句子列表（共 {len(sentence_meta)} 句）：\n{numbered}"
     )
 
-    content = _llm_call(api_config, prompt, max_tokens=4096)
+    content = _llm_call(api_config, prompt, max_tokens=8192)
     if not content:
         return None
     m = re.search(r'\{.*\}', content, re.DOTALL)
@@ -1178,10 +1178,19 @@ def _presegment_text(text: str) -> list:
 
 
 def _llm_call(api_config: dict, prompt: str, max_tokens: int = 4096):
-    """统一封装 LLM 调用，返回清洗后的文本内容；失败返回 None"""
+    """统一封装 LLM 调用，返回清洗后的文本内容；失败返回 None。
+
+    带合理超时（请求 120s + 读取 300s），避免上游网关慢导致扒文案线程无限等待。
+    也兼容旧字段名（base_url/api_key/model），以及 openai 新版客户端的 timeout 参数。
+    """
     try:
         from openai import OpenAI
-        client = OpenAI(base_url=api_config["base_url"], api_key=api_config["api_key"])
+        client = OpenAI(
+            base_url=api_config["base_url"],
+            api_key=api_config["api_key"],
+            timeout=300,
+            max_retries=1,
+        )
         resp = client.chat.completions.create(
             model=api_config.get("model", "deepseek-chat"),
             messages=[{"role": "user", "content": prompt}],
@@ -1426,7 +1435,7 @@ def _detect_speakers_text(text: str, api_config: dict, cues: list | None = None)
         f"句子列表（共 {len(sentences)} 句）：\n{numbered}"
     )
 
-    content = _llm_call(api_config, prompt, max_tokens=4096)
+    content = _llm_call(api_config, prompt, max_tokens=8192)
     if content:
         match = re.search(r'\[.*\]', content, re.DOTALL)
         if match:
@@ -1766,7 +1775,7 @@ def _detect_speakers_audio(text: str, api_config: dict, cues: list | None,
         f"句子列表（共 {len(sentences)} 句）：\n{numbered}"
     )
 
-    content = _llm_call(api_config, prompt, max_tokens=4096)
+    content = _llm_call(api_config, prompt, max_tokens=8192)
     if content:
         match = re.search(r'\[.*\]', content, re.DOTALL)
         if match:

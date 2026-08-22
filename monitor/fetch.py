@@ -60,6 +60,10 @@ class FetchError(Exception):
     """抓取层统一错误（带用户可读中文信息）"""
 
 
+class _WeiboBlocked(Exception):
+    """微博接口被风控/登录失效拦截，消息为面向用户的说明。"""
+
+
 def get_douyin_cookie() -> str | None:
     """从本机浏览器读取 douyin.com 的 cookie，返回 'k=v; k2=v2' 字符串。"""
     if not F2_AVAILABLE:
@@ -253,12 +257,35 @@ _WEIBO_UA = (
     "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 )
 
+# 手动配置的微博登录态 cookie（优先于浏览器自动读取）。
+# 由作品库/设置界面通过 set_weibo_cookie() 注入并持久化，解决浏览器未登录/无法自动解密的问题。
+_weibo_cookie_override: str | None = None
 
-def _get_weibo_cookie() -> str | None:
+
+def set_weibo_cookie(cookie: str | None) -> None:
+    """设置手动配置的微博 cookie（'k=v; k2=v2'）。传 None/空字符串则清除，回退到浏览器自动读取。"""
+    global _weibo_cookie_override
+    c = (cookie or "").strip()
+    _weibo_cookie_override = c or None
+
+
+def get_weibo_cookie() -> str | None:
+    """获取微博登录态 cookie：优先用手动配置的，其次自动读浏览器。
+
+    返回 'k=v; k2=v2' 字符串，或 None（两者都拿不到且无 SUB 时）。
+    """
+    if _weibo_cookie_override:
+        # 手动配置直接可用（可能不带 SUB，交给调用方判断）
+        return _weibo_cookie_override
+    return _get_weibo_cookie_from_browser()
+
+
+def _get_weibo_cookie_from_browser() -> str | None:
     """从本机浏览器读取 weibo.com 的登录 cookie（关键字段 SUB），返回 'k=v; k2=v2' 字符串。
 
     微博现在游客态接口（m.weibo.cn / weibo.com/ajax）都被风控拦截（432 / ok:-100），
     必须带登录态 cookie。复用 browser_cookie3 读 Chrome/Edge/Firefox。
+    Edge 读取可能要求管理员权限（RequiresAdminError），这里捕获后继续尝试下一个浏览器。
     """
     try:
         import browser_cookie3
@@ -273,6 +300,11 @@ def _get_weibo_cookie() -> str | None:
         except Exception:
             continue
     return None
+
+
+def _get_weibo_cookie() -> str | None:
+    """兼容旧调用名的封装：等价 get_weibo_cookie。"""
+    return get_weibo_cookie()
 
 
 def _weibo_extract_uid(home_url: str) -> str:
@@ -363,6 +395,9 @@ def _weibo_fetch_videos(uid: str, cookie: str, count: int = 10) -> list:
     返回结构：data.list 为微博卡片数组，每条 mblog 含 page_info（视频信息）与 text 正文。
     视频直链在 page_info.media_info.stream_url / stream_url_hd / mp4_hd_url。
     游标字段为 data.next_cursor。
+
+    当接口因登录失效/风控返回 ok!=1（常见 ok=-100、432）时，抛 _WeiboBlocked，
+    由上层转成用户可读的中文提示。
     """
     import httpx
     headers = {
@@ -385,9 +420,15 @@ def _weibo_fetch_videos(uid: str, cookie: str, count: int = 10) -> list:
             logger.warning("微博视频列表抓取失败: %s", e)
             break
         if d.get("ok") != 1:
-            # ok != 1 通常意味着 cookie 失效或接口变更
+            # ok != 1 通常意味着 cookie 失效（-100）或风控（432）或接口变更
+            ok = d.get("ok")
+            msg = d.get("msg") or ""
+            logger.warning("微博视频接口返回 ok=%s: %s", ok, msg)
             if not items:
-                logger.warning("微博视频接口返回 ok=%s: %s", d.get("ok"), d.get("msg", ""))
+                raise _WeiboBlocked(
+                    f"微博接口被拦截（ok={ok} {msg}）：Cookie 可能已失效或被风控。"
+                    f"请在浏览器重新登录 weibo.com 并更新「设置 → 微博 Cookie」。"
+                )
             break
         data = d.get("data") or {}
         feed = data.get("list") or data.get("cards") or []
@@ -397,10 +438,13 @@ def _weibo_fetch_videos(uid: str, cookie: str, count: int = 10) -> list:
             mblog = card.get("mblog") or card
             if not mblog:
                 continue
-            # 只保留视频微博（page_info.type == 'video' 且含 media_info）
+            # 只保留视频微博（page_info.type == 'video' 且含 media_info）。
+            # 注意：运算符优先级 `not A and not B == "video"` 会被解析成
+            # `(not A) and ((not B) == "video")` 恒为 False，导致图文微博也被误收。
+            # 正确语义：既非视频、又无 media_info 的卡片跳过。
             page_info = mblog.get("page_info") or {}
             media = page_info.get("media_info") or {}
-            if not media and not page_info.get("type") == "video":
+            if page_info.get("type") != "video" and not media:
                 continue
             mid = str(mblog.get("mid") or mblog.get("id") or "")
             text_raw = mblog.get("text_raw") or mblog.get("text") or ""
@@ -447,14 +491,14 @@ def fetch_user_videos_weibo(home_url: str, count: int = 10, cookie: str | None =
     或 {ok:False, error:...}。依赖浏览器登录态 cookie（SUB）。
     """
     import httpx
-    try:
-        import browser_cookie3  # noqa: F401
-    except Exception:
-        return {"ok": False, "error": "缺少 browser_cookie3 组件，无法读取浏览器微博登录态"}
-
-    cookie = cookie or _get_weibo_cookie()
+    cookie = cookie or get_weibo_cookie()
     if not cookie:
-        return {"ok": False, "error": "未找到微博登录态（请先在 Chrome/Edge/Firefox 任一浏览器登录 weibo.com）"}
+        # 没有任何可用 cookie：尝试读浏览器；若 browser_cookie3 都不可用则明确提示
+        try:
+            import browser_cookie3  # noqa: F401
+        except Exception:
+            return {"ok": False, "error": "缺少 browser_cookie3 组件且未配置微博 Cookie，无法读取微博登录态"}
+        return {"ok": False, "error": "未找到微博登录态：请在「设置 → 微博 Cookie」粘贴已登录的微博 Cookie，或在 Chrome/Edge 任一浏览器登录 weibo.com 后重试"}
 
     uid = _weibo_extract_uid(home_url)
     if not uid:
@@ -468,11 +512,16 @@ def fetch_user_videos_weibo(home_url: str, count: int = 10, cookie: str | None =
         if not account.get("nickname"):
             # 资料拿不到但视频能拿时，至少给个 uid 兜底
             account["nickname"] = f"微博用户{uid}"
+        if not videos and not account.get("nickname"):
+            # 连账号资料都拿不到 + 空视频列表：多半是 cookie 失效/被风控
+            return {"ok": False, "error": "微博接口返回空（cookie 可能已失效或被风控），请在「设置 → 微博 Cookie」更新后重试"}
         return {
             "ok": True,
             "account": account,
             "videos": videos,
         }
+    except _WeiboBlocked as e:
+        return {"ok": False, "error": str(e)}
     except Exception as e:
         return {"ok": False, "error": f"微博抓取失败: {e}"}
 
@@ -481,7 +530,7 @@ def fetch_accounts_videos(
     accounts: list[dict], count: int = 10, on_progress=None
 ) -> list[dict]:
     """批量抓取多个账号，带限速与进度回调。
-    accounts: [{home_url, note, douyin_id}...]
+    accounts: [{home_url, note, douyin_id, platform}...]
     返回 [{home_url, note, ok, account, videos, error}...]
     """
     results = []
@@ -490,10 +539,18 @@ def fetch_accounts_videos(
         start = time.time()
         if on_progress:
             on_progress(idx, total, acc.get("note") or acc.get("home_url", ""))
-        r = fetch_user_videos(acc.get("home_url", ""), count=count)
+        home_url = acc.get("home_url", "")
+        # 按平台分流：优先用账号显式 platform 字段，否则按主页链接识别；默认抖音
+        platform = (acc.get("platform") or "").lower()
+        if not platform and "weibo" in (home_url or "").lower():
+            platform = "weibo"
+        if platform == "weibo":
+            r = fetch_user_videos_weibo(home_url, count=count)
+        else:
+            r = fetch_user_videos(home_url, count=count)
         r["note"] = acc.get("note", "")
         r["douyin_id"] = acc.get("douyin_id", "")
-        r["home_url"] = acc.get("home_url", "")
+        r["home_url"] = home_url
         r["_account_id"] = acc.get("id", "")  # 供「我的账号」按账号归档快照
         results.append(r)
         # 限速：真实抓取时每个账号间隔随机 1.5~3.5s（mock 不延时）

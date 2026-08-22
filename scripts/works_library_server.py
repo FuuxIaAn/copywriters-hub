@@ -18,6 +18,7 @@ import asyncio
 import json
 import os
 import random
+import re
 import sys
 import threading
 import time
@@ -551,6 +552,11 @@ def _extract_one_video_asr(video: dict, raw: dict | None, output_dir: str,
     2. raw 详情里的 play_addr/music.play_url（_pick_video_urls）。
     两条都拿不到才放弃。
 
+    关键：抖音视频的 video_url 常常是「背景音乐直链」（.mp3，仅音乐、无人声），
+    能下载但 ASR 转写会得到空结果。因此这里**依次尝试每个可用源**：
+    第一个源转写为空（无人声）时，自动换下一个源（通常是真口播 mp4）重试，
+    避免「拿到了音乐源却丢掉口播」导致只剩标题。
+
     keep_wav=True 时保留 wav 文件并返回路径（供音频辅助区分发言人使用），
     调用方负责后续清理。
     """
@@ -558,23 +564,32 @@ def _extract_one_video_asr(video: dict, raw: dict | None, output_dir: str,
 
     aweme_id = str(video.get("aweme_id") or "").strip()
 
-    # ① 优先用列表接口自带的 video_url / video_urls（免二次抓详情，规避详情接口风控）
-    urls = []
+    # ① 收集候选源（去重）。抖音会把同一个视频塞 60+ 个镜像 URL，全部试会白等，
+    #    因此只保留「不同文件」的源：先独立音轨（music，若含人声最省流量），
+    #    再取少量真实视频源（douyinvod.com / douyin.com/play），并截断到合理数量。
+    candidate_urls = []
     vurl = (video.get("video_url") or "").strip()
     if vurl.startswith("http"):
-        urls.append(vurl)
+        candidate_urls.append(vurl)
     for u in (video.get("video_urls") or []) or []:
-        if isinstance(u, str) and u.startswith("http") and u not in urls:
-            urls.append(u)
+        if isinstance(u, str) and u.startswith("http") and u not in candidate_urls:
+            candidate_urls.append(u)
 
-    # ② raw 详情兜底（_pick_video_urls 按音轨优先排序）
-    if raw:
+    # 去重「同一文件不同镜像」：按去掉主机名后的路径做 key，同路径只留第一个
+    seen_path = {}
+    for u in candidate_urls:
         try:
-            for u in asr_server._pick_video_urls(raw):
-                if u not in urls:
-                    urls.append(u)
+            path_key = u.split("//", 1)[1].split("/", 1)[1].split("?")[0][:120]
         except Exception:
-            pass
+            path_key = u[:120]
+        if path_key not in seen_path:
+            seen_path[path_key] = u
+    unique_urls = list(seen_path.values())
+
+    # 排序：独立音轨(.mp3/.m4a/music)优先，真实视频源其次；各取一部分
+    music_urls = [u for u in unique_urls if re.search(r"\.(mp3|m4a)(\?|$)", u) or "ies-music" in u]
+    video_urls = [u for u in unique_urls if u not in music_urls]
+    urls = music_urls[:2] + video_urls[:3]   # 最多 5 个源，避免长时间遍历
     if not urls:
         return "", ""
 
@@ -585,43 +600,51 @@ def _extract_one_video_asr(video: dict, raw: dict | None, output_dir: str,
             return "", ""
     else:
         api_key = ""
-    # 下载（优先独立音轨 music.play_url，最省流量且必含人声）
-    video_path, size, dl_err = asr_server._download_video(output_dir or ".", urls, aweme_id)
-    if dl_err:
-        print(f"[workslib] ASR 下载失败 {aweme_id}: {dl_err}")
-        return "", ""
-    # 抽音轨
-    wav_path, ex_err = asr_server._extract_audio(video_path)
-    try:
-        os.remove(video_path)
-    except OSError:
-        pass
-    if ex_err:
-        print(f"[workslib] ASR 抽音轨失败 {aweme_id}: {ex_err}")
-        return "", ""
-    # 转写
     key = api_key or (asr_server._load_key(output_dir) if output_dir else "")
     if not key:
+        return "", ""
+
+    # 依次尝试每个源：下载→抽音轨→转写；转出非空文本才收下，
+    # 空结果（无人声的音乐源）则换下一个源，尽量拿回真实口播。
+    last_reason = ""
+    for url in urls:
+        video_path, size, dl_err = asr_server._download_video(
+            output_dir or ".", [url], aweme_id)
+        if dl_err:
+            last_reason = f"ASR 下载失败: {dl_err}"
+            print(f"[workslib] ASR 下载失败 {aweme_id}（源 {url[:50]}…）: {dl_err}")
+            continue
+        wav_path, ex_err = asr_server._extract_audio(video_path)
+        try:
+            os.remove(video_path)
+        except OSError:
+            pass
+        if ex_err:
+            last_reason = f"ASR 抽音轨失败: {ex_err}"
+            print(f"[workslib] ASR 抽音轨失败 {aweme_id}: {ex_err}")
+            continue
+        text, asr_err = asr_server._call_asr(key, wav_path)
+        # 转写失败或为空 → 清理 wav，换下一个源重试
+        if asr_err or not text or len(text) < 5:
+            last_reason = f"ASR 转写失败: {asr_err or '结果为空'}"
+            print(f"[workslib] ASR 源 {url[:50]}… 转写失败: {asr_err or '结果为空'}，换下一个源重试")
+            try:
+                os.remove(wav_path)
+            except OSError:
+                pass
+            continue
+        # 成功：返回文本，按需保留 wav
+        if keep_wav:
+            return text, wav_path
         try:
             os.remove(wav_path)
         except OSError:
             pass
-        return "", ""
-    text, asr_err = asr_server._call_asr(key, wav_path)
-    if asr_err or not text or len(text) < 5:
-        print(f"[workslib] ASR 转写失败 {aweme_id}: {asr_err or '结果为空'}")
-        try:
-            os.remove(wav_path)
-        except OSError:
-            pass
-        return "", ""
-    if keep_wav:
-        return text, wav_path
-    try:
-        os.remove(wav_path)
-    except OSError:
-        pass
-    return text, ""
+        return text, ""
+    # 所有源都失败
+    if last_reason:
+        print(f"[workslib] ASR 全部源失败 {aweme_id}: {last_reason}")
+    return "", ""
 
 
 def _extract_one_video_weibo(video: dict, api_config: dict, output_dir: str = ""):
@@ -965,3 +988,63 @@ def reextract_stale_videos(output_dir: str, account_id: str, api_config: dict | 
             "skipped_short": skipped_short,
             "re_extracted": re_ok, "failed": re_fail,
             "details": details}
+
+
+# ---------------------------------------------------------------- 微博 Cookie 管理
+# 微博主页级抓取依赖登录态 cookie（SUB）。自动读浏览器在本机常失败（Chrome 未登录、
+# Edge 需管理员权限），因此提供手动粘贴 cookie 的持久化入口，存到数据目录 weibo_cookie.json。
+
+_WEIBO_COOKIE_FILE = "weibo_cookie.json"
+
+
+def _weibo_cookie_path(output_dir: str) -> str:
+    return os.path.join(output_dir, _WEIBO_COOKIE_FILE)
+
+
+def load_weibo_cookie(output_dir: str) -> str:
+    """启动时从数据目录读取手动配置的微博 cookie，并注入 mfetch，返回 cookie 或 ''。"""
+    try:
+        if os.path.exists(_weibo_cookie_path(output_dir)):
+            with open(_weibo_cookie_path(output_dir), "r", encoding="utf-8") as f:
+                data = json.load(f)
+            c = (data.get("cookie") or "").strip()
+            if c:
+                mfetch.set_weibo_cookie(c)
+                return c
+    except Exception as e:
+        print(f"[workslib] 读取微博 Cookie 失败: {e}")
+    mfetch.set_weibo_cookie(None)
+    return ""
+
+
+def save_weibo_cookie(output_dir: str, cookie: str) -> dict:
+    """保存/更新微博 cookie 并立即注入 mfetch。cookie 为空则清除配置（回退自动读浏览器）。"""
+    c = (cookie or "").strip()
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        with open(_weibo_cookie_path(output_dir), "w", encoding="utf-8") as f:
+            json.dump({"cookie": c, "saved_at": time.strftime("%Y-%m-%d %H:%M:%S")}, f,
+                      ensure_ascii=False, indent=2)
+    except Exception as e:
+        return {"ok": False, "error": f"保存微博 Cookie 失败: {e}"}
+    mfetch.set_weibo_cookie(c)
+    return {"ok": True, "configured": bool(c),
+            "message": "微博 Cookie 已保存并立即生效" if c else "已清除微博 Cookie 配置，回退自动读取"}
+
+
+def get_weibo_cookie_config(output_dir: str) -> dict:
+    """查询当前微博 cookie 配置状态（只返回是否有配置，不回显完整 cookie）。"""
+    configured = False
+    saved_at = ""
+    try:
+        if os.path.exists(_weibo_cookie_path(output_dir)):
+            with open(_weibo_cookie_path(output_dir), "r", encoding="utf-8") as f:
+                data = json.load(f)
+            configured = bool((data.get("cookie") or "").strip())
+            saved_at = data.get("saved_at") or ""
+    except Exception:
+        pass
+    # 是否有可用登录态（手动配置或浏览器自动读取）
+    available = bool(mfetch.get_weibo_cookie())
+    return {"ok": True, "configured": configured, "available": available, "saved_at": saved_at}
+
