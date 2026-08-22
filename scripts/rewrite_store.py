@@ -16,6 +16,7 @@
 import datetime
 import json
 import os
+import re
 import threading
 import uuid
 
@@ -34,6 +35,55 @@ REGIONS = [
 ]
 
 _LOCK = threading.Lock()
+
+
+# ---------- 句子级工具（洗稿成品逐句展示/评论用） ----------
+
+_SENT_SPLIT = re.compile(r"([^。！？!?…\n]+[。！？!?…]?)")
+
+def split_sentences(text: str) -> list:
+    """把一段成品文案切成句子列表（保留标点，去掉纯空白段）。
+    用于前端逐句标注作者 + 逐句评论。"""
+    if not text:
+        return []
+    out = []
+    for raw in _SENT_SPLIT.findall(str(text)):
+        s = raw.strip()
+        if len(s) >= 2:
+            out.append(s)
+    return out
+
+
+def rebuild_text(sentences: list) -> str:
+    """把句子列表重新拼回一段文本（句间空一行，保持口播分段可读）。"""
+    if not sentences:
+        return ""
+    return "\n\n".join(str(s).strip() for s in sentences if str(s).strip())
+
+
+def sentence_index(sentences: list, target: str) -> int:
+    """在句子列表中找到与 target 匹配的句子的下标（容错：先精确、再按前 12 字前缀、再按包含）。"""
+    if not sentences or not target:
+        return -1
+    t = re.sub(r"[\s\u3000]+", "", str(target))
+    if not t:
+        return -1
+    norm = [re.sub(r"[\s\u3000]+", "", str(s)) for s in sentences]
+    # 1) 精确
+    for i, s in enumerate(norm):
+        if s == t:
+            return i
+    # 2) 前 12 字前缀（目标被句子以相同开头覆盖）
+    head = t[:12]
+    if head:
+        for i, s in enumerate(norm):
+            if s[:len(head)] == head:
+                return i
+    # 3) 包含（目标较长时，句子被包含在目标里，或目标被包含在句子里）
+    for i, s in enumerate(norm):
+        if t in s or s in t:
+            return i
+    return -1
 
 
 def rewrites_path(output_dir: str) -> str:
@@ -229,6 +279,51 @@ def set_session_status(output_dir: str, rid: str, status: str):
 def with_result_metrics(output_dir: str, rid: str, metrics: dict) -> bool:
     """用户回填成品数据（用于满 3 篇评价）。"""
     return bool(update_session(output_dir, rid, lambda s: s.update({"result_metrics": metrics or {}})))
+
+
+def update_sentence(output_dir: str, rid: str, region_id: str, old_sentence: str, new_sentence: str,
+                    comment: str = None, reply_time: str = None):
+    """句级评论重写后，把某分区里的指定一句替换成新句，重组该区 text，并追加一条评论记录。
+    comment/reply_time 提供时自动写入 part.comments（一次原子写入，避免并发覆盖）。
+    返回更新后的 (region_text, sentences)。"""
+    def _fn(data):
+        # 遍历 sessions 找到本篇洗稿
+        for entry in data.get("sessions", []):
+            if entry.get("id") != rid:
+                continue
+            parts = entry.setdefault("parts", {})
+            part = parts.setdefault(region_id, {})
+            sentences = part.get("sentences")
+            if sentences is None:
+                # 旧数据无句子拆分：从 text 现场切分
+                sentences = split_sentences(part.get("text", ""))
+            idx = sentence_index(sentences, old_sentence)
+            if idx < 0:
+                # 找不到精确句：追加到末尾（专家重写的兜底）
+                idx = len(sentences)
+            new_s = (new_sentence or "").strip()
+            if not new_s:
+                return None
+            if idx < len(sentences):
+                sentences[idx] = new_s
+            else:
+                sentences.append(new_s)
+            part["sentences"] = sentences
+            part["text"] = rebuild_text(sentences)
+            if comment is not None:
+                comments = list(part.get("comments") or [])
+                comments.append({
+                    "comment": comment,
+                    "reply": new_s,
+                    "time": reply_time or _now(),
+                    "kind": "sentence",
+                })
+                part["comments"] = comments
+            entry["updated_at"] = _now()
+            return (part["text"], list(sentences))
+        return None
+    _, ret = _update(output_dir, _fn)
+    return ret
 
 
 # ---------- 评价标准（满 3 篇） ----------

@@ -291,6 +291,28 @@ def _iter_comment_prompt(agent, region_label: str, current_text: str, comment: s
     return "\n".join(parts)
 
 
+def _iter_sentence_prompt(agent, region_label: str, sentence: str, comment: str, original: str,
+                          untouchable: list = None) -> str:
+    """用户对成品里【某一句话】评论 → 让负责该句的专家只重写这一句。
+    强调：只输出这一句，不要输出整段。"""
+    unt = untouchable or []
+    unt_hit = [u["sentence"] for u in unt
+               if u.get("sentence") and (u["sentence"] in sentence or sentence in u["sentence"])]
+    parts = [
+        f"你负责的【{region_label}】里有一句话，用户提出了评论，请你【只重写这一句话】。\n\n",
+        f"【这句话】\n{sentence}\n\n",
+        f"【用户评论】\n{comment}\n\n",
+        f"【原稿参考】\n{original[:1500]}\n\n",
+        "【硬性要求】\n"
+        "1. 只输出重写后的这一句话本身（成品，不要解释、不要加前后缀、不要写『好的』『以下是』之类）；\n"
+        "2. 保持这句话在原文中的语气与信息密度，不要引入新的段落；\n"
+        "3. 如果这句话属于「不可动句子」共识，则不能改动其表达核心：\n"
+        + ("\n".join(f"   - {u}" for u in unt_hit) if unt_hit else "   （这句不在不可动共识内，可自由改写）") + "\n"
+        "4. 如果用户的评论不适用于这一句，仍尽量按评论意图微调；若实在无法改，就原样复述这一句。",
+    ]
+    return "\n".join(parts)
+
+
 # ---------- 主流程 ----------
 
 def start_rewrite_flow(session, config, original: str, metrics: dict, requirements: str, output_dir: str, rid: str):
@@ -367,7 +389,8 @@ def start_rewrite_flow(session, config, original: str, metrics: dict, requiremen
             reply = a.say([{"role": "user",
                             "content": _part_prompt(a, r["label"], r["desc"], original, skeleton_text,
                                                     untouchable, analyses_text, requirements)}])
-            parts[r["id"]] = {"agent": owner, "text": reply, "comments": []}
+            parts[r["id"]] = {"agent": owner, "text": reply, "comments": [],
+                              "sentences": rewrite_store.split_sentences(reply)}
             push(type="message", name=a.name, title=a.title, text=reply, kind="part", region=r["id"], region_label=r["label"])
         rewrite_store.update_session(output_dir, rid, lambda s: s.update({"parts": parts}))
 
@@ -452,6 +475,58 @@ def run_part_comment(session, config, rid: str, region_id: str, comment: str, ou
     # 迭代完成恢复「待定稿」
     rewrite_store.set_session_status(output_dir, rid, "review")
     push(type="message", name=owner, title=agent.title, text=reply, kind="part", region=region_id, region_label=region["label"], is_iteration=True)
+
+
+def run_sentence_comment(session, config, rid: str, region_id: str, sentence: str, comment: str, output_dir: str):
+    """用户对成品里【某一句话】评论 → 负责该分区的专家只重写这一句。
+    回写 parts[region_id].sentences 中的对应句，并通过 SSE 推送 sentence_update 事件就地更新。"""
+    def push(**kw):
+        try:
+            session.push(kw)
+        except Exception:  # noqa: BLE001
+            pass
+    from server import build_single_agent
+    regions = rewrite_store.get_regions(output_dir)
+    region = next((r for r in regions if r["id"] == region_id), None)
+    if not region:
+        push(type="error", text=f"找不到区域 {region_id}")
+        return
+    entry = rewrite_store.get_session(output_dir, rid)
+    parts = (entry or {}).get("parts") or {}
+    part = parts.get(region_id) or {}
+    owner = part.get("agent") or rewrite_store.get_agent_for_region(output_dir, region_id)
+    agent = build_single_agent(config, owner)
+    if not agent:
+        push(type="error", text=f"找不到专家 {owner}")
+        return
+    untouchable = (entry or {}).get("untouchable") or []
+    original = (entry or {}).get("original") or ""
+
+    push(type="system",
+         text=f"💬 你评论了【{region['label']}】的一句话（{owner}）：{comment[:100]}{'…' if len(comment)>100 else ''}",
+         kind="phase")
+    push(type="typing", name=owner, title=agent.title)
+    rewrite_store.set_session_status(output_dir, rid, "iterating")
+    try:
+        reply = agent.say([{"role": "user",
+                            "content": _iter_sentence_prompt(agent, region["label"], sentence, comment, original, untouchable)}])
+    except Exception:  # noqa: BLE001
+        rewrite_store.set_session_status(output_dir, rid, "review")
+        raise
+    new_text = (reply or "").strip()
+    # 去掉专家可能加的多余引号/标点
+    new_text = new_text.strip("\"'“”‘’「」『』")
+    if not new_text:
+        new_text = sentence
+    # 一次原子写入：替换单句 + 重组 text + 追加评论记录
+    ret = rewrite_store.update_sentence(
+        output_dir, rid, region_id, sentence, new_text,
+        comment=comment,
+        reply_time=__import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M"),
+    )
+    rewrite_store.set_session_status(output_dir, rid, "review")
+    push(type="message", name=owner, title=agent.title, text=new_text, kind="sentence_update",
+         region=region_id, region_label=region["label"], sentence=sentence, is_iteration=True)
 
 
 def run_final_review(session, config, rid: str, output_dir: str):

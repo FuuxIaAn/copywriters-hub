@@ -3470,6 +3470,38 @@ def api_rewrite_comment(rid):
     return jsonify({"ok": True})
 
 
+@app.route("/api/rewrite/<rid>/sentence_comment", methods=["POST"])
+def api_rewrite_sentence_comment(rid):
+    """用户对成品【某一句话】评论 → 负责该分区的专家只重写这一句。"""
+    data = request.get_json(force=True, silent=True) or {}
+    session = _get_rw_session(rid)
+    if not session:
+        return jsonify({"ok": False, "error": "会话不存在或已过期"}), 400
+    region_id = (data.get("region") or "").strip()
+    sentence = (data.get("sentence") or "").strip()
+    comment = (data.get("comment") or "").strip()
+    if not region_id or not sentence or not comment:
+        return jsonify({"ok": False, "error": "缺少区域、句子或评论内容"}), 400
+    if not session.try_begin("rw_comment"):
+        return jsonify({"ok": False, "error": "另一项任务正在进行中，请稍后再试"}), 409
+    session.finished = False
+
+    def _run():
+        try:
+            rewrite_flow.run_sentence_comment(session, load_config(), rid, region_id, sentence, comment, OUTPUT_DIR)
+        except Exception as e:  # noqa: BLE001
+            print(f"[server] 洗稿句级评论迭代异常: {e}")
+            session.push({"type": "error", "text": f"句级评论迭代出错：{e}"})
+        finally:
+            session.end_phase()
+            session.finished = True
+            session.push({"type": "done"})
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/rewrite/<rid>/finalize", methods=["POST"])
 def api_rewrite_finalize(rid):
     """满意后：最终阿审审查 + 阿数记录分工。"""

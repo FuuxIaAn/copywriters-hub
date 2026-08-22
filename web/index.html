@@ -1115,13 +1115,29 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-msg .txt { white-space:pre-wrap; }
 .rw-msg .ts { font-size:10px; color:var(--c-text-mute); margin-left:auto; }
 .rw-typing { color:var(--c-text-mute); font-size:12px; padding:4px 2px; }
-.rw-parts { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px; }
+.rw-parts { display:flex; flex-direction:column; gap:12px; margin-top:14px; }
 .rw-part { border:1px solid var(--c-border); border-radius:10px; padding:10px 12px; background:var(--c-card); }
 .rw-part .h { display:flex; align-items:center; gap:8px; font-weight:600; font-size:13px; margin-bottom:6px; }
 .rw-part .owner { font-size:11px; color:#fff; background:var(--primary); border-radius:999px; padding:1px 8px; font-weight:400; }
 .rw-part .txt { font-size:12.5px; line-height:1.8; white-space:pre-wrap; background:var(--c-bg-soft); border-radius:8px; padding:8px 10px; max-height:200px; overflow-y:auto; }
 .rw-part .acts { margin-top:8px; display:flex; gap:8px; }
 .rw-part .cmt { font-size:12px; color:var(--c-text-sub); background:var(--c-bg-soft); border-radius:6px; padding:6px 10px; margin-top:6px; }
+/* 逐句成品流：每句用作者颜色做底色 + 作者标签，hover 出评论按钮 */
+.rw-flow { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+.rw-flow-empty { font-size:12.5px; color:var(--c-text-mute); background:var(--c-bg-soft); border-radius:8px; padding:10px 12px; white-space:pre-wrap; }
+.rw-sentence { display:flex; gap:8px; align-items:flex-start; border-radius:9px; padding:8px 10px; border:1px solid transparent; position:relative; transition:box-shadow .15s; }
+.rw-sentence:hover { box-shadow:0 1px 5px rgba(0,0,0,.10); border-color:var(--c-border); }
+.rw-sentence .rw-s-tag { flex:none; font-size:10.5px; color:#fff; font-weight:600; border-radius:6px; padding:2px 8px; margin-top:1px; letter-spacing:.5px; }
+.rw-sentence .rw-s-txt { flex:1; font-size:13px; line-height:1.75; white-space:pre-wrap; }
+.rw-sentence .rw-s-act { flex:none; opacity:0; transition:opacity .15s; }
+.rw-sentence:hover .rw-s-act { opacity:1; }
+.rw-sentence .rw-s-act button { font-size:11px; border-radius:6px; padding:3px 9px; border:1px solid var(--c-border); background:var(--c-card); color:var(--c-text-sub); cursor:pointer; }
+.rw-sentence .rw-s-act button:hover { background:var(--primary-bg); color:var(--primary); border-color:var(--primary); }
+.rw-sentence.rw-s-pending { opacity:.6; }
+/* 句级评论的等待/回复态 */
+.rw-s-reply { font-size:11.5px; color:var(--c-text-sub); background:var(--c-bg-soft); border-radius:6px; padding:4px 8px; margin-top:2px; }
+.rw-s-reply.pending { color:#ff9500; }
+.rw-s-reply .who { font-weight:600; color:var(--primary); }
 .rw-untouch { background:#fff7ed; border:1px solid #fed7aa; border-radius:10px; padding:10px 14px; margin-top:12px; }
 .rw-untouch .t { font-weight:600; color:#c2410c; margin-bottom:6px; }
 .rw-untouch ul { padding-left:18px; font-size:12.5px; color:#7c2d12; line-height:1.9; }
@@ -1130,6 +1146,8 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-insight-hd:hover { color:var(--primary); }
 .rw-insight-hd .chev { display:inline-block; transition:transform .2s var(--ease-fast); color:var(--c-text-mute); }
 .rw-insight-hd.open .chev { transform:rotate(90deg); }
+.rw-insight-bd { display:none; margin-top:8px; }
+.rw-insight.open .rw-insight-bd { display:block; }
 .rw-assign .chip { background:var(--c-card); border:1px solid var(--c-border); border-radius:999px; padding:4px 12px; font-size:12px; display:flex; gap:6px; align-items:center; }
 .rw-assign .chip .r { color:var(--c-text-sub); }
 .rw-assign .chip .a { font-weight:600; }
@@ -8714,14 +8732,39 @@ function rwPartCardHtml(rid, region, p){
       (agent ? '<span class="owner" style="background:' + colorOf(agent) + '">' + esc(agent) + '</span>' : '') +
       (p.is_new ? '<span class="tag">新负责人</span>' : '') +
     '</div>' +
-    '<div class="txt">' + esc(p.text) + '</div>' +
-    '<div class="acts">' +
-      '<button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="rwComment(\'' + rid + '\',\'' + r.id + '\')">💬 评论</button>' +
-    '</div>' +
+    rwSentenceFlowHtml(rid, r, p, agent) +
     (p.comments && p.comments.length ? p.comments.map(c =>
       '<div class="cmt">💬 你：' + esc(c.comment) + '<br>↩ ' + esc(c.reply || '').slice(0, 120) + '</div>'
     ).join('') : '') +
   '</div>';
+}
+
+// 逐句成品流：把分区成品切成一句句，每句用负责人颜色做底 + 作者标签，hover 出评论按钮
+function rwSentenceFlowHtml(rid, r, p, agent){
+  const flow = p.sentences && p.sentences.length
+    ? p.sentences
+    : (rwSplitSentences(p.text) || []);
+  if (!flow.length) {
+    return '<div class="rw-flow"><div class="rw-flow-empty">' + esc(p.text) + '</div></div>';
+  }
+  const tagColor = agent ? colorOf(agent) : '#94A3B8';
+  const rows = flow.map((s, i) => {
+    const safe = esc(s);
+    const tag = esc(agent || '');
+    return '<div class="rw-sentence" id="rws-' + rid + '-' + r.id + '-' + i + '" data-region="' + esc(r.id) + '" data-idx="' + i + '" data-txt="' + safe + '" style="background:' + tagColor + '1f;border-left:3px solid ' + tagColor + '">' +
+      '<span class="rw-s-tag" style="background:' + tagColor + '">' + tag + '</span>' +
+      '<span class="rw-s-txt">' + safe + '</span>' +
+      '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'' + esc(r.id) + '\',' + i + ')">💬 评论</button></span>' +
+    '</div>';
+  }).join('');
+  return '<div class="rw-flow" data-flow="' + esc(r.id) + '">' + rows + '</div>';
+}
+
+// 把一段文本切成句子（前端兜底，与后端 split_sentences 一致）
+function rwSplitSentences(text){
+  if (!text) return [];
+  const parts = String(text).split(/(?<=[。！？!?…\n])|(?<=\n)/);
+  return parts.map(s => s.trim()).filter(s => s.length >= 2);
 }
 
 function rwDetailHtml(s){
@@ -8746,9 +8789,15 @@ function rwDetailHtml(s){
       '<button class="btn-ghost" onclick="rwShowDiff(\'' + s.id + '\')">🔍 原稿vs成品</button>' +
       '<button class="btn-ghost" onclick="copyFullText(\'' + s.id + '\')">📋 复制成品全文</button>' +
     '</div>' +
-    '<div id="rwStream" class="rw-stream"></div>' +
-    (unt ? '<div class="rw-untouch"><div class="t">🚫 不可动句子（全员共识）</div><ul>' + unt + '</ul></div>' : '') +
-    '<div class="card-title" style="margin-top:16px">📦 分区成品</div><div class="rw-parts">' + partsHtml + '</div>';
+    '<div class="card-title" style="margin-top:16px">✍️ 洗稿成品（每句标注作者，可逐句评论）</div>' +
+    '<div class="rw-parts">' + partsHtml + '</div>' +
+    '<div class="rw-insight panel" style="margin-top:14px">' +
+      '<div class="rw-insight-hd" onclick="this.parentElement.classList.toggle(\'open\');this.querySelector(\'.chev\').classList.toggle(\'open\')">' +
+        '<span class="chev">▶</span> 🔍 专家分析与审查记录（骨架 / 全员分析 / 审查 / 分工）</div>' +
+      '<div class="rw-insight-bd"><div id="rwStream" class="rw-stream"></div>' +
+        (unt ? '<div class="rw-untouch"><div class="t">🚫 不可动句子（全员共识）</div><ul>' + unt + '</ul></div>' : '') +
+      '</div>' +
+    '</div>';
 }
 
 function renderRwHistory(s){
@@ -8825,6 +8874,14 @@ function rwHandle(ev){
     const stream = $('rwStream');
     const typing = $('rwTyping'); if (typing) typing.remove();
     const kind = ev.kind || 'analysis';
+    // 句级重写：直接在成品句子流里就地更新这一句，不往讨论区堆消息
+    if (kind === 'sentence_update') {
+      if (ev.region) {
+        rwSentenceUpdate(ev);
+        rwBusy = false;   // 句级重写完成解除 busy
+      }
+      return;
+    }
     const tagMap = { skeleton:'骨架拆解', analysis:'全员分析', part:'分区成品', review:'原则审查', record:'分工记录', evaluate:'评价', replace:'替换' };
     appendRwMsg(kind, ev.name || '', tagMap[kind] || kind, ev.text || '');
     // 分区成品 → 更新分区卡片
@@ -8849,12 +8906,20 @@ function upsertRwPart(ev){
   const region = regions.find(x => x.id === ev.region);
   let card = $('rwpart-' + ev.region);
   if (card) {
-    const txt = card.querySelector('.txt');
-    if (txt) txt.textContent = ev.text;
     const h = card.querySelector('.h');
     if (h) {
       const owner = h.querySelector('.owner');
       if (owner) owner.textContent = ev.name || owner.textContent;
+    }
+    // 重建该分区的句子流（整段 text 重新切句）
+    const flowWrap = card.querySelector('.rw-flow');
+    const agent = ev.name || (card.querySelector('.owner') && card.querySelector('.owner').textContent) || '';
+    const sentHtml = rwSentenceFlowHtml(rwCurrent, region, { text: ev.text, agent: agent }, agent);
+    if (flowWrap) flowWrap.outerHTML = sentHtml;
+    else {
+      const ins = document.createElement('div');
+      ins.innerHTML = sentHtml;
+      card.insertBefore(ins.firstChild, card.querySelector('.cmt') || null);
     }
   const cmts = card.querySelectorAll('.cmt');
   // 保留历史评论，只去掉「等待回复」的占位标记（专家已重写完成）
@@ -8899,6 +8964,75 @@ async function rwComment(rid, regionId){
     // SSE 事件流到达 is_iteration 消息时解除 busy（见 rwHandle）；这里兜底 90 秒
     setTimeout(() => { rwBusy = false; }, 90000);
   }
+}
+
+// 逐句评论：让负责该分区的专家只按你的评论重写这一句
+async function rwSentenceComment(rid, regionId, idx){
+  if (!rwSid) { showToast('会话未就绪，请重新打开'); return; }
+  if (rwBusy) { showToast('⏳ 专家正在重写中，请稍候…'); return; }
+  const el = document.getElementById('rws-' + rid + '-' + regionId + '-' + idx);
+  if (!el) return;
+  const sentence = el.getAttribute('data-txt') || '';
+  if (!sentence.trim()) { showToast('这句话没有内容'); return; }
+  const f = await openModal({
+    title: '💬 评论这一句',
+    sub: '把想调整的方向告诉负责这句的专家，他会只按你的评论重写这一句（不改其他句）。',
+    fields: [{ name:'comment', label:'你的评论', type:'textarea', rows:3, placeholder:'例如：这句太软，换成更扎心的反问…' }],
+    okText: '发送并让专家重写这句'
+  });
+  if (!f || !f.comment || !f.comment.trim()) return;
+  if (rwBusy) { showToast('⏳ 专家正在重写中，请稍候…'); return; }
+  rwBusy = true;
+  try {
+    const d = await post('/api/rewrite/' + rid + '/sentence_comment', {
+      sid: rwSid, region: regionId, sentence: sentence, comment: f.comment.trim()
+    });
+    if (!d.ok) { showToast('⚠ ' + (d.error || '评论失败')); return; }
+    // 就地标记这一句为「重写中」
+    el.classList.add('rw-s-pending');
+    // 移除旧的等待/回复标记，追加等待提示
+    const old = el.querySelector('.rw-s-reply'); if (old) old.remove();
+    const w = document.createElement('div');
+    w.className = 'rw-s-reply pending';
+    w.textContent = '💬 你：' + f.comment.trim() + '（专家重写中…）';
+    el.appendChild(w);
+    connectRwStream(rwSid);
+  } finally {
+    // 兜底：90 秒后解除 busy（SSE is_iteration 到达时会提前解除）
+    setTimeout(() => { rwBusy = false; }, 90000);
+  }
+}
+
+// SSE 就地更新某一句（sentence_update 事件）
+function rwSentenceUpdate(ev){
+  const regionId = ev.region;
+  const oldTxt = ev.sentence || '';
+  const newTxt = ev.text || '';
+  if (!regionId || !oldTxt || !newTxt) return;
+  // 找到该分区的句子流容器
+  const flow = document.querySelector('.rw-flow[data-flow="' + regionId + '"]');
+  if (!flow) return;
+  let target = null;
+  // 1) 精确匹配 data-txt
+  flow.querySelectorAll('.rw-sentence').forEach(s => {
+    if (s.getAttribute('data-txt') === oldTxt) target = s;
+  });
+  // 2) 退化：按句序（后端 update_sentence 用前缀匹配，可能落在别处；这里再兜底按内容前 12 字匹配）
+  if (!target) {
+    const head = oldTxt.replace(/\s/g, '').slice(0, 12);
+    flow.querySelectorAll('.rw-sentence').forEach(s => {
+      const t = (s.getAttribute('data-txt') || '').replace(/\s/g, '').slice(0, 12);
+      if (head && t === head) target = s;
+    });
+  }
+  if (!target) { showToast('已重写，但找不到对应句子，请刷新查看'); return; }
+  // 更新文案 + 恢复样式
+  const txtEl = target.querySelector('.rw-s-txt');
+  if (txtEl) txtEl.textContent = newTxt;
+  target.setAttribute('data-txt', newTxt);
+  target.classList.remove('rw-s-pending');
+  const w = target.querySelector('.rw-s-reply');
+  if (w) { w.classList.remove('pending'); w.innerHTML = '↩ <span class="who">专家已按你的评论重写</span>' + esc(newTxt); }
 }
 
 async function rwFinalize(rid){
