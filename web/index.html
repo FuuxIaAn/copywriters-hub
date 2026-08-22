@@ -1116,7 +1116,16 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-msg .ts { font-size:10px; color:var(--c-text-mute); margin-left:auto; }
 .rw-typing { color:var(--c-text-mute); font-size:12px; padding:4px 2px; }
 .rw-parts { display:flex; flex-direction:column; gap:12px; margin-top:14px; }
-.rw-fulltext { display:flex; flex-direction:column; gap:6px; margin-top:14px; padding:14px 16px; background:var(--c-card); border:1px solid var(--c-border); border-radius:12px; min-height:120px; }
+.rw-fulltext { display:flex; flex-direction:column; gap:6px; margin-top:0; padding:16px 18px; background:var(--c-card); border:1px solid var(--c-border); border-radius:12px; min-height:120px; }
+.rw-hd-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+.rw-hd-left { display:flex; align-items:center; gap:10px; min-width:0; }
+.rw-hd-title { font-size:16px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rw-hd-time { margin-left:auto; font-size:11px; color:var(--c-text-mute); flex:none; }
+.rw-doc-wrap { background:var(--c-card); border:1px solid var(--c-border); border-radius:14px; box-shadow:0 1px 4px rgba(0,0,0,.05); overflow:hidden; }
+.rw-doc-bar { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--c-border); background:var(--c-bg-soft); }
+.rw-doc-title { font-size:14px; font-weight:700; }
+.rw-doc-count { font-size:11px; color:var(--c-text-mute); }
+.rw-misc { margin-top:14px; }
 .rw-section-hd { font-size:11px; color:var(--c-text-mute); padding:8px 2px 4px 2px; border-bottom:1px dashed var(--c-border); margin-bottom:4px; display:flex; gap:8px; align-items:center; }
 .rw-section-hd:first-child { padding-top:2px; }
 .rw-section-tag { font-size:10px; color:#fff; border-radius:999px; padding:1px 7px; font-weight:500; }
@@ -1126,15 +1135,15 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-part .txt { font-size:12.5px; line-height:1.8; white-space:pre-wrap; background:var(--c-bg-soft); border-radius:8px; padding:8px 10px; max-height:200px; overflow-y:auto; }
 .rw-part .acts { margin-top:8px; display:flex; gap:8px; }
 .rw-part .cmt { font-size:12px; color:var(--c-text-sub); background:var(--c-bg-soft); border-radius:6px; padding:6px 10px; margin-top:6px; }
-/* 全文流中的逐句卡片 */
-.rw-fulltext .rw-sentence { display:flex; gap:8px; align-items:flex-start; border-radius:9px; padding:8px 10px; border:1px solid transparent; position:relative; transition:box-shadow .15s; }
-.rw-fulltext .rw-sentence:hover { box-shadow:0 1px 5px rgba(0,0,0,.10); border-color:var(--c-border); }
-.rw-fulltext .rw-s-untouchable { border:1px dashed #b45309 !important; background:#fff8eb !important; }
+/* 全文流中的逐句卡片：像文档段落，作者色作左侧色条 + 作者小标签，hover 出评论 */
+.rw-fulltext .rw-sentence { display:flex; gap:10px; align-items:flex-start; border-radius:8px; padding:7px 10px; border-left:3px solid transparent; transition:background .15s; }
+.rw-fulltext .rw-sentence:hover { background:var(--c-bg-soft); }
+.rw-fulltext .rw-s-untouchable { border-left:3px dashed #b45309 !important; background:#fff8eb !important; }
 .rw-fulltext .rw-s-untouchable:hover { background:#fff4e0 !important; }
 .rw-s-unt-icon { flex:none; font-size:12px; margin-top:2px; opacity:.85; }
-.rw-fulltext .rw-s-tag { flex:none; font-size:10.5px; color:#fff; font-weight:600; border-radius:6px; padding:2px 8px; margin-top:1px; letter-spacing:.5px; min-width:36px; text-align:center; }
-.rw-fulltext .rw-s-txt { flex:1; font-size:13.5px; line-height:1.8; white-space:pre-wrap; color:var(--c-text); }
-.rw-fulltext .rw-s-act { flex:none; opacity:0; transition:opacity .15s; }
+.rw-fulltext .rw-s-tag { flex:none; font-size:10.5px; color:#fff; font-weight:600; border-radius:6px; padding:2px 8px; margin-top:2px; letter-spacing:.5px; min-width:34px; text-align:center; }
+.rw-fulltext .rw-s-txt { flex:1; font-size:14px; line-height:1.85; white-space:pre-wrap; color:var(--c-text); }
+.rw-fulltext .rw-s-act { flex:none; opacity:0; transition:opacity .15s; margin-top:2px; }
 .rw-fulltext .rw-sentence:hover .rw-s-act { opacity:1; }
 .rw-fulltext .rw-s-act button { font-size:11px; border-radius:6px; padding:3px 9px; border:1px solid var(--c-border); background:var(--c-card); color:var(--c-text-sub); cursor:pointer; }
 .rw-fulltext .rw-s-act button:hover { background:var(--primary-bg); color:var(--primary); border-color:var(--primary); }
@@ -1142,21 +1151,6 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-fulltext .rw-s-reply { font-size:11.5px; color:var(--c-text-sub); background:var(--c-bg-soft); border-radius:6px; padding:4px 8px; margin-top:2px; }
 .rw-fulltext .rw-s-reply.pending { color:#ff9500; }
 .rw-fulltext .rw-s-reply .who { font-weight:600; color:var(--primary); }
-/* 旧版式（保留兼容） */
-.rw-flow { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
-.rw-flow-empty { font-size:12.5px; color:var(--c-text-mute); background:var(--c-bg-soft); border-radius:8px; padding:10px 12px; white-space:pre-wrap; }
-.rw-sentence { display:flex; gap:8px; align-items:flex-start; border-radius:9px; padding:8px 10px; border:1px solid transparent; position:relative; transition:box-shadow .15s; }
-.rw-sentence:hover { box-shadow:0 1px 5px rgba(0,0,0,.10); border-color:var(--c-border); }
-.rw-sentence .rw-s-tag { flex:none; font-size:10.5px; color:#fff; font-weight:600; border-radius:6px; padding:2px 8px; margin-top:1px; letter-spacing:.5px; }
-.rw-sentence .rw-s-txt { flex:1; font-size:13px; line-height:1.75; white-space:pre-wrap; }
-.rw-sentence .rw-s-act { flex:none; opacity:0; transition:opacity .15s; }
-.rw-sentence:hover .rw-s-act { opacity:1; }
-.rw-sentence .rw-s-act button { font-size:11px; border-radius:6px; padding:3px 9px; border:1px solid var(--c-border); background:var(--c-card); color:var(--c-text-sub); cursor:pointer; }
-.rw-sentence .rw-s-act button:hover { background:var(--primary-bg); color:var(--primary); border-color:var(--primary); }
-.rw-sentence.rw-s-pending { opacity:.6; }
-.rw-s-reply { font-size:11.5px; color:var(--c-text-sub); background:var(--c-bg-soft); border-radius:6px; padding:4px 8px; margin-top:2px; }
-.rw-s-reply.pending { color:#ff9500; }
-.rw-s-reply .who { font-weight:600; color:var(--primary); }
 .rw-untouch { background:#fff7ed; border:1px solid #fed7aa; border-radius:10px; padding:10px 14px; margin-top:12px; }
 .rw-untouch .t { font-weight:600; color:#c2410c; margin-bottom:6px; }
 .rw-untouch ul { padding-left:18px; font-size:12.5px; color:#7c2d12; line-height:1.9; }
@@ -8828,30 +8822,55 @@ function rwDetailHtml(s){
     return n;
   })();
 
-  return '<div class="card-title">✂️ ' + esc(s.title) + ' ' + rwStatusBadge(s.status) +
-      '<span class="muted" style="margin-left:auto">' + esc(s.created_at || '') + '</span></div>' +
-    '<div class="muted">原稿</div><div class="rw-orig">' + esc(s.original || '') + '</div>' +
-    rwMetricHtml(s.metrics) +
-    (s.requirements ? '<div class="rw-bar">📌 洗稿要求：' + esc(s.requirements) + '</div>' : '') +
-    '<div class="rw-actions">' +
-      (s.status !== 'done'
-        ? '<button class="btn-primary" onclick="rwFinalize(\'' + s.id + '\')">⚖️ 最终审查 + 记录分工</button>'
-        : '') +
-      '<button class="btn-ghost" onclick="rwToWork(\'' + s.id + '\')">💾 保存为作品</button>' +
-      '<button class="btn-ghost" onclick="rwFillResult(\'' + s.id + '\')">📊 回填成品数据</button>' +
-      '<button class="btn-ghost" onclick="rwShowDiff(\'' + s.id + '\')">🔍 原稿vs成品</button>' +
-      '<button class="btn-ghost" onclick="copyFullText(\'' + s.id + '\')">📋 复制成品全文</button>' +
+  // 洗稿要求若有则短展示一行
+  const reqBar = s.requirements
+    ? '<div class="rw-bar" style="margin:6px 0 0;color:var(--c-text-sub)">📌 ' + esc(s.requirements) + '</div>'
+    : '';
+
+  return '<div class="rw-hd-row">' +
+      '<div class="rw-hd-left">' +
+        '<span class="rw-hd-title">✂️ ' + esc(s.title) + '</span>' +
+        rwStatusBadge(s.status) +
+      '</div>' +
+      '<span class="rw-hd-time">' + esc(s.created_at || '') + '</span>' +
     '</div>' +
-    '<div id="rwProgress" class="rw-progress"></div>' +
-    '<div class="card-title" style="margin-top:16px">✍️ 洗稿成品（每句标注作者，可逐句评论）' +
-      (sentCount > 0 ? '<span class="muted" style="margin-left:10px;font-weight:400;font-size:12px">共 ' + sentCount + ' 句</span>' : '') +
+    reqBar +
+    // 阶段进度（洗稿进行中时显示）
+    '<div id="rwProgress" class="rw-progress" style="margin:8px 0"></div>' +
+    // 主区域：成品全文直接顶上来
+    '<div class="rw-doc-wrap">' +
+      '<div class="rw-doc-bar">' +
+        '<span class="rw-doc-title">📝 洗稿成品</span>' +
+        (sentCount > 0 ? '<span class="rw-doc-count">共 ' + sentCount + ' 句 · 每句标注作者，hover 可评论让对应专家重写</span>' : '') +
+      '</div>' +
+      '<div id="rwFullText" class="rw-fulltext">' + fullTextHtml + '</div>' +
     '</div>' +
-    '<div id="rwFullText" class="rw-fulltext">' + fullTextHtml + '</div>' +
-    '<div class="rw-insight panel" style="margin-top:14px">' +
-      '<div class="rw-insight-hd" onclick="this.parentElement.classList.toggle(\'open\');this.querySelector(\'.chev\').classList.toggle(\'open\')">' +
-        '<span class="chev">▶</span> 🔍 专家分析与审查记录（骨架 / 全员分析 / 审查 / 分工）</div>' +
-      '<div class="rw-insight-bd"><div id="rwStream" class="rw-stream"></div>' +
-        (unt ? '<div class="rw-untouch"><div class="t">🚫 不可动句子（全员共识）</div><ul>' + unt + '</ul></div>' : '') +
+    // 次要操作区：原稿折叠 + 动作按钮 + 分析与审查折叠
+    '<div class="rw-misc">' +
+      '<div class="rw-actions">' +
+        (s.status !== 'done'
+          ? '<button class="btn-primary" onclick="rwFinalize(\'' + s.id + '\')">⚖️ 最终审查 + 记录分工</button>'
+          : '') +
+        '<button class="btn-ghost" onclick="rwToWork(\'' + s.id + '\')">💾 保存为作品</button>' +
+        '<button class="btn-ghost" onclick="rwFillResult(\'' + s.id + '\')">📊 回填成品数据</button>' +
+        '<button class="btn-ghost" onclick="copyFullText(\'' + s.id + '\')">📋 复制全文</button>' +
+      '</div>' +
+      '<div class="rw-insight panel" style="margin-top:10px">' +
+        '<div class="rw-insight-hd" onclick="this.parentElement.classList.toggle(\'open\');this.querySelector(\'.chev\').classList.toggle(\'open\')">' +
+          '<span class="chev">▶</span> 📄 原稿 & 原稿vs成品（校对用）</div>' +
+        '<div class="rw-insight-bd">' +
+          '<div class="muted" style="margin:4px 0 4px">原稿</div>' +
+          '<div class="rw-orig">' + esc(s.original || '') + '</div>' +
+          rwMetricHtml(s.metrics) +
+          '<div style="margin-top:10px"><button class="btn-ghost" onclick="rwShowDiff(\'' + s.id + '\')">🔍 打开原稿 vs 成品对照</button></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="rw-insight panel" style="margin-top:10px">' +
+        '<div class="rw-insight-hd" onclick="this.parentElement.classList.toggle(\'open\');this.querySelector(\'.chev\').classList.toggle(\'open\')">' +
+          '<span class="chev">▶</span> 🔍 专家分析与审查记录（骨架 / 全员分析 / 审查 / 分工）</div>' +
+        '<div class="rw-insight-bd"><div id="rwStream" class="rw-stream"></div>' +
+          (unt ? '<div class="rw-untouch"><div class="t">🚫 不可动句子（全员共识）</div><ul>' + unt + '</ul></div>' : '') +
+        '</div>' +
       '</div>' +
     '</div>';
 }
