@@ -8774,9 +8774,9 @@ function rwDetailHtml(s){
     c = (allText.match(/[\u4e00-\u9fa5a-zA-Z0-9]/g) || []).length;
     return { sentCount: n, charCount: c };
   })();
-  const targetMin = 550, targetMax = 600;
+  const targetMin = 550, targetMax = 700;
   const charTip = charCount > 0
-    ? (' · 约 ' + charCount + ' 字' + (charCount < targetMin ? '（偏少，目标 550-600）' : charCount > targetMax ? '（偏多，目标 550-600）' : '（目标 550-600）'))
+    ? (' · 约 ' + charCount + ' 字' + (charCount < targetMin ? '（偏少，目标 550-700）' : charCount > targetMax ? '（偏多，目标 550-700）' : '（目标 550-700）'))
     : '';
   const charColor = charCount > 0 && (charCount < targetMin || charCount > targetMax) ? 'color:#dc2626;' : '';
 

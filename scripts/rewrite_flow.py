@@ -158,11 +158,11 @@ def _analysis_prompt(original: str, metrics: dict, requirements: str, extra: str
 
 
 def _part_prompt(agent, region_label: str, region_desc: str, original: str, skeleton: str,
-                 untouchable: list, analyses_text: str, requirements: str, char_budget: int = 75) -> str:
+                 untouchable: list, analyses_text: str, requirements: str, char_budget: int = 80) -> str:
     parts = [
         f"你是「{agent.name}」（{agent.title}）。在洗稿流程中，你负责补写【{region_label}】（{region_desc}）。",
         "",
-        f"请直接输出你负责的这一部分的文案。全文总字数控制在 550-600 字，你的这一部分约 {char_budget} 字（可用 1-2 个自然段，直接可用的成品，不要解释过程）。",
+        f"请直接输出你负责的这一部分的文案。全文总字数控制在 550-700 字，你的这一部分约 {char_budget} 字（可用 1-2 个自然段，直接可用的成品，不要解释过程）。",
         "",
         "【硬性要求】",
         "1. 必须保留全部「不可动句子」（原句照抄，一字不改）；",
@@ -189,6 +189,50 @@ def _part_prompt(agent, region_label: str, region_desc: str, original: str, skel
         f"现在输出【{region_label}】的文案：",
     ]
     return "\n".join(parts)
+
+
+def _pace_prompt(agent, regions, untouchable, original, skeleton_text):
+    """整体节奏负责人（当前担任「整体节奏」分区的专家，动态，不写死）制定各分区篇幅配比。
+    只返回分配结果（JSON），不给理由/过程。总字数 550-700。"""
+    region_lines = "\n".join(
+        f"- {r['id']}：{r['label']}（{r['desc']}）" for r in regions
+    )
+    return (
+        f"你是「{agent.name}」（{agent.title}），负责把控这篇口播全文的整体节奏与篇幅配比。\n\n"
+        "请根据原稿结构和各分区的重要程度，为下面每个分区分配一个合理的字数（单位：字）。\n"
+        f"硬性要求：8 个分区的字数加起来必须在 550-700 字之间。\n\n"
+        f"【分区清单】\n{region_lines}\n\n"
+        f"【不可动句子】\n" + ("\n".join(f"- {u['sentence']}" for u in untouchable) or "（无）") + "\n\n"
+        f"【骨架】\n{(skeleton_text or '')[:1200]}\n\n"
+        f"【原稿】\n{original[:2000]}\n\n"
+        "只输出一个 JSON 对象，格式：{\"opening\": 字数, \"middle\": 字数, ...}，"
+        "键用分区的 id，值用纯数字，所有值加起来在 550-700 之间。不要输出任何其他文字、不要给理由。"
+    )
+
+
+def _parse_pace(reply: str, regions, fallback: int = 80) -> dict:
+    """解析整体节奏负责人返回的字数分配 JSON；解析失败时回退为平均分配。"""
+    text = (reply or "").strip()
+    # 提取第一个 {...} 块
+    import re as _re
+    m = _re.search(r"\{.*\}", text, _re.S)
+    if m:
+        try:
+            import json as _json
+            raw = _json.loads(m.group(0))
+            if isinstance(raw, dict):
+                budget = {}
+                for r in regions:
+                    v = raw.get(r["id"])
+                    if isinstance(v, (int, float)) and v > 0:
+                        budget[r["id"]] = int(v)
+                if budget:
+                    return budget
+        except Exception:
+            pass
+    # 回退：平均分配
+    total = len(regions) * fallback
+    return {r["id"]: fallback for r in regions}
 
 
 def _review_prompt(parts_text: str, principles: str, original: str) -> str:
@@ -379,6 +423,22 @@ def start_rewrite_flow(session, config, original: str, metrics: dict, requiremen
         regions = rewrite_store.get_regions(output_dir)
         assignments = rewrite_store.get_assignments(output_dir)
         analyses_text = "\n\n".join(f"### {x['agent']}\n{x['text'][:800]}" for x in analyses)
+
+        # 阶段 2.5：整体节奏负责人（动态取「整体节奏」分区当前负责人，不写死）分配各分区字数
+        budget = {}
+        pace_region = next((r for r in regions if r["id"] == "rhythm"), None)
+        if pace_region:
+            pace_owner = assignments.get("rhythm") or pace_region.get("default") or ""
+            pace_agent = next((x for x in agents if x.name == pace_owner), None)
+            if pace_agent:
+                push(type="typing", name=pace_agent.name, title=pace_agent.title)
+                pace_reply = pace_agent.say([{"role": "user",
+                    "content": _pace_prompt(pace_agent, regions, untouchable, original, skeleton_text)}])
+                budget = _parse_pace(pace_reply, regions)
+        # 兜底：若未拿到分配（无节奏负责人或解析失败），各分区按默认 80 字
+        if not budget:
+            budget = {r["id"]: 80 for r in regions}
+
         parts = {}
         for r in regions:
             owner = assignments.get(r["id"], r["default"])
@@ -388,7 +448,8 @@ def start_rewrite_flow(session, config, original: str, metrics: dict, requiremen
             push(type="typing", name=a.name, title=a.title)
             reply = a.say([{"role": "user",
                             "content": _part_prompt(a, r["label"], r["desc"], original, skeleton_text,
-                                                    untouchable, analyses_text, requirements)}])
+                                                    untouchable, analyses_text, requirements,
+                                                    char_budget=budget.get(r["id"], 80))}])
             parts[r["id"]] = {"agent": owner, "text": reply, "comments": [],
                               "sentences": rewrite_store.split_sentences(reply)}
             push(type="message", name=a.name, title=a.title, text=reply, kind="part", region=r["id"], region_label=r["label"])
