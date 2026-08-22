@@ -277,24 +277,25 @@ def _parse_pace(reply: str, regions, fallback: int = 80) -> dict:
 
 
 def _assemble_prompt(agent, original: str, skeleton_text: str, untouchable: list,
-                     containers: dict, points: dict, requirements: str) -> str:
+                     containers: dict, points: dict, requirements: str,
+                     region_agents: dict = None) -> str:
     """整体节奏负责人（动态）把主体三段和四个点拼装成一篇连续文章。
     输出格式：每句以「【作者名】句子内容」开头，方便前端按颜色区分；总字数 550-700。
-    不可动句子必须逐字保留。"""
-    def _section(name, text):
+    不可动句子必须逐字保留。region_agents: {region_id: 当前负责人}，动态，不写死。"""
+    ra = region_agents or {}
+    def _section(label, owner, text):
         if not text:
-            return f"【{name}】（未提供）\n"
-        return f"【{name}】\n{text}\n\n"
+            return f"【{label}（{owner or '待定'}负责）】（未提供）\n"
+        return f"【{label}（{owner or '待定'}负责）】\n{text}\n\n"
 
     parts_text = ""
-    parts_text += _section("开头段落（小黄负责）", containers.get("opening", ""))
-    parts_text += _section("中间段落（老周负责）", containers.get("middle", ""))
-    parts_text += _section("结尾段落（阿骨负责）", containers.get("ending", ""))
-    # 四个点带嵌入定位
-    parts_text += _section("爆点/炸点（阿爆负责，含嵌入定位）", points.get("bang", ""))
-    parts_text += _section("争议点（阿证负责，含嵌入定位）", points.get("controversy", ""))
-    parts_text += _section("共鸣点（阿沁负责，含嵌入定位）", points.get("resonance", ""))
-    parts_text += _section("情绪点（阿导负责，含嵌入定位）", points.get("emotion", ""))
+    parts_text += _section("开头段落", ra.get("opening", ""), containers.get("opening", ""))
+    parts_text += _section("中间段落", ra.get("middle", ""), containers.get("middle", ""))
+    parts_text += _section("结尾段落", ra.get("ending", ""), containers.get("ending", ""))
+    parts_text += _section("爆点/炸点（含嵌入定位）", ra.get("bang", ""), points.get("bang", ""))
+    parts_text += _section("争议点（含嵌入定位）", ra.get("controversy", ""), points.get("controversy", ""))
+    parts_text += _section("共鸣点（含嵌入定位）", ra.get("resonance", ""), points.get("resonance", ""))
+    parts_text += _section("情绪点（含嵌入定位）", ra.get("emotion", ""), points.get("emotion", ""))
 
     unt_text = "\n".join(f"- 「{u['sentence']}」" for u in untouchable) or "（无）"
 
@@ -604,9 +605,12 @@ def start_rewrite_flow(session, config, original: str, metrics: dict, requiremen
         final_agents = []
         if pace_agent and containers:
             push(type="typing", name=pace_agent.name, title=pace_agent.title)
+            # 各分区实际负责人（动态，阿数替换后自动生效）
+            region_agents = {rid: (raw_parts[rid].get("agent") or "") for rid in raw_parts}
             assemble_reply = pace_agent.say([{"role": "user",
                 "content": _assemble_prompt(pace_agent, original, skeleton_text, untouchable,
-                                            containers, points, requirements)}])
+                                            containers, points, requirements,
+                                            region_agents=region_agents)}])
             final_sentences, final_agents = _parse_assemble(assemble_reply)
             # 硬校验：不可动句子必须原样保留，缺失则补回
             final_sentences, final_agents = _enforce_untouchable(final_sentences, final_agents, untouchable)
@@ -663,7 +667,10 @@ def start_rewrite_flow(session, config, original: str, metrics: dict, requiremen
 
 
 def _parts_to_text(parts: dict, regions: list) -> str:
-    """按区域顺序拼装成品全文（供审查/记录/拼接用）。"""
+    """按区域顺序拼装成品全文（供审查/记录/拼接用）。
+    若存在 final（整体节奏拼装的成品），直接返回 final 全文。"""
+    if parts and parts.get("final") and parts["final"].get("text"):
+        return parts["final"]["text"]
     lines = []
     for r in regions:
         p = parts.get(r["id"]) or {}
@@ -714,7 +721,8 @@ def run_part_comment(session, config, rid: str, region_id: str, comment: str, ou
 
 def run_sentence_comment(session, config, rid: str, region_id: str, sentence: str, comment: str, output_dir: str):
     """用户对成品里【某一句话】评论 → 负责该分区的专家只重写这一句。
-    回写 parts[region_id].sentences 中的对应句，并通过 SSE 推送 sentence_update 事件就地更新。"""
+    回写 parts[region_id].sentences 中的对应句，并通过 SSE 推送 sentence_update 事件就地更新。
+    若 region_id == 'final'，从 parts.final.agents 找到该句作者，让该作者重写该句。"""
     def push(**kw):
         try:
             session.push(kw)
@@ -722,20 +730,78 @@ def run_sentence_comment(session, config, rid: str, region_id: str, sentence: st
             pass
     from server import build_single_agent
     regions = rewrite_store.get_regions(output_dir)
+    entry = rewrite_store.get_session(output_dir, rid)
+    parts = (entry or {}).get("parts") or {}
+    untouchable = (entry or {}).get("untouchable") or []
+    original = (entry or {}).get("original") or ""
+
+    # ---- final 分区：定位该句作者，让对应专家只重写这一句，再更新 final ----
+    if region_id == 'final':
+        final = parts.get('final') or {}
+        agents = final.get('agents') or []
+        sents = final.get('sentences') or []
+        idx = _index_sentence(sents, sentence)
+        if idx < 0:
+            push(type="error", text="找不到对应句子")
+            return
+        owner = agents[idx] or final.get('agent') or ""
+        # 若作者为空，回退到整体节奏负责人
+        agent = build_single_agent(config, owner) if owner else None
+        if not agent:
+            push(type="error", text=f"找不到专家 {owner}")
+            return
+        push(type="system",
+             text=f"💬 你评论了成品中的一句话（{owner or '整体节奏'}）：{comment[:100]}{'…' if len(comment)>100 else ''}",
+             kind="phase")
+        push(type="typing", name=owner or '整体节奏', title=agent.title)
+        rewrite_store.set_session_status(output_dir, rid, "iterating")
+        try:
+            reply = agent.say([{"role": "user",
+                                "content": _iter_sentence_prompt(agent, "成品", sentence, comment, original, untouchable)}])
+        except Exception:  # noqa: BLE001
+            rewrite_store.set_session_status(output_dir, rid, "review")
+            raise
+        new_text = (reply or "").strip().strip("\"'“”‘’「」『』")
+        if not new_text:
+            new_text = sentence
+        def _fn(data):
+            for e in data.get("sessions", []):
+                if e.get("id") != rid:
+                    continue
+                p = e.setdefault("parts", {}).setdefault("final", {})
+                ss = list(p.get("sentences") or [])
+                ag = list(p.get("agents") or [])
+                if 0 <= idx < len(ss):
+                    ss[idx] = new_text
+                if 0 <= idx < len(ag):
+                    ag[idx] = owner
+                p["sentences"] = ss
+                p["agents"] = ag
+                p["text"] = "\n\n".join(str(x) for x in ss)
+                comments = list(p.get("comments") or [])
+                comments.append({"comment": comment, "reply": new_text,
+                                 "time": __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                 "kind": "sentence"})
+                p["comments"] = comments
+                e["updated_at"] = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M")
+                return
+        rewrite_store._update(output_dir, _fn)
+        rewrite_store.set_session_status(output_dir, rid, "review")
+        push(type="message", name=owner or '整体节奏', title=agent.title, text=new_text,
+             kind="sentence_update", region="final", region_label="成品全文",
+             sentence=sentence, is_iteration=True)
+        return
+
     region = next((r for r in regions if r["id"] == region_id), None)
     if not region:
         push(type="error", text=f"找不到区域 {region_id}")
         return
-    entry = rewrite_store.get_session(output_dir, rid)
-    parts = (entry or {}).get("parts") or {}
     part = parts.get(region_id) or {}
     owner = part.get("agent") or rewrite_store.get_agent_for_region(output_dir, region_id)
     agent = build_single_agent(config, owner)
     if not agent:
         push(type="error", text=f"找不到专家 {owner}")
         return
-    untouchable = (entry or {}).get("untouchable") or []
-    original = (entry or {}).get("original") or ""
 
     push(type="system",
          text=f"💬 你评论了【{region['label']}】的一句话（{owner}）：{comment[:100]}{'…' if len(comment)>100 else ''}",
@@ -762,6 +828,27 @@ def run_sentence_comment(session, config, rid: str, region_id: str, sentence: st
     rewrite_store.set_session_status(output_dir, rid, "review")
     push(type="message", name=owner, title=agent.title, text=new_text, kind="sentence_update",
          region=region_id, region_label=region["label"], sentence=sentence, is_iteration=True)
+
+
+def _index_sentence(sentences, target) -> int:
+    """在句子列表中定位 target（容错：先精确、再前12字前缀、再包含）。"""
+    if not sentences or not target:
+        return -1
+    t = str(target)
+    tn = _normalize(t)
+    for i, s in enumerate(sentences):
+        sn = _normalize(s)
+        if sn == tn:
+            return i
+    for i, s in enumerate(sentences):
+        sn = _normalize(s)
+        if tn and sn[:12] == tn[:12]:
+            return i
+    for i, s in enumerate(sentences):
+        sn = _normalize(s)
+        if tn and (tn in sn or sn in tn):
+            return i
+    return -1
 
 
 def run_final_review(session, config, rid: str, output_dir: str):

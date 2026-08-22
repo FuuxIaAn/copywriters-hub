@@ -8963,8 +8963,13 @@ function rwHandle(ev){
     }
     // 分区成品 → 只更新成品句子流（可见），不往折叠的分析区重复堆
     if (kind === 'part' && ev.region) {
-      const r = (rwMeta && rwMeta.regions || []).find(x => x.id === ev.region);
-      if (r) upsertRwPart(ev);
+      if (ev.region === 'final') {
+        // final 是整体节奏拼装的成品，不在 rwMeta.regions 里，直接更新
+        upsertRwPart(ev);
+      } else {
+        const r = (rwMeta && rwMeta.regions || []).find(x => x.id === ev.region);
+        if (r) upsertRwPart(ev);
+      }
       if (ev.is_iteration) rwBusy = false;  // 迭代完成解除 busy
       return;
     }
@@ -8985,12 +8990,30 @@ function upsertRwPart(ev){
   const parts = rwSessionCache.parts || (rwSessionCache.parts = {});
   const old = parts[ev.region] || {};
   const agent = ev.name || old.agent || '';
-  parts[ev.region] = {
-    agent: agent,
-    text: ev.text || old.text || '',
-    sentences: rwSplitSentences(ev.text || old.text || ''),
-    comments: old.comments || [],
-  };
+  if (ev.region === 'final' && ev.text) {
+    // final 是整体节奏拼装的成品：解析带【作者】的句子，保存每句作者
+    const sents = [];
+    const ags = [];
+    for (const raw of rwSplitSentences(ev.text)) {
+      const m = raw.match(/^【(.+?)】\s*(.+)$/);
+      if (m) { sents.push(m[2]); ags.push(m[1].trim()); }
+      else { sents.push(raw); ags.push(''); }
+    }
+    parts['final'] = {
+      agent: agent,
+      text: ev.text || old.text || '',
+      sentences: sents,
+      agents: (ev.agents && ev.agents.length ? ev.agents : ags),
+      comments: old.comments || [],
+    };
+  } else {
+    parts[ev.region] = {
+      agent: agent,
+      text: ev.text || old.text || '',
+      sentences: rwSplitSentences(ev.text || old.text || ''),
+      comments: old.comments || [],
+    };
+  }
   // 重建全文流容器
   const full = document.querySelector('.rw-fulltext');
   if (full) {
