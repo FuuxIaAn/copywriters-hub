@@ -8752,9 +8752,6 @@ async function openRewrite(rid, quiet){
   if (s.status === 'running' && rwSid) {
     // 有进行中的流程：连接 SSE（重放历史 + 实时接收）
     connectRwStream(rwSid);
-  } else {
-    // 已完成/待定稿：渲染存档历史
-    renderRwHistory(s);
   }
 }
 
@@ -8809,10 +8806,6 @@ function rwDetailHtml(s){
   // 全文流：按 regions 顺序把所有句子拼成一篇连续文章
   const fullTextHtml = rwFullTextHtml(s.id, regions, parts, untouchable);
 
-  const unt = untouchable.map(u =>
-    '<li>「' + esc(u.sentence) + '」<span class="muted">（' + (u.agents || []).length + '人共识）</span></li>'
-  ).join('');
-
   const sentCount = (() => {
     let n = 0;
     for (const r of regions) {
@@ -8824,8 +8817,19 @@ function rwDetailHtml(s){
 
   // 洗稿要求若有则短展示一行
   const reqBar = s.requirements
-    ? '<div class="rw-bar" style="margin:6px 0 0;color:var(--c-text-sub)">📌 ' + esc(s.requirements) + '</div>'
+    ? '<div class="rw-bar" style="margin:6px 0 0;color:var(--c-text-sub);font-size:12px">📌 ' + esc(s.requirements) + '</div>'
     : '';
+
+  // 行动作按钮（保留最核心的 4 个）
+  const actions = '<div class="rw-actions" style="margin-top:14px">' +
+    (s.status !== 'done'
+      ? '<button class="btn-primary" onclick="rwFinalize(\'' + s.id + '\')">⚖️ 最终审查 + 记录分工</button>'
+      : '') +
+    '<button class="btn-ghost" onclick="rwToWork(\'' + s.id + '\')">💾 保存为作品</button>' +
+    '<button class="btn-ghost" onclick="rwFillResult(\'' + s.id + '\')">📊 回填成品数据</button>' +
+    '<button class="btn-ghost" onclick="copyFullText(\'' + s.id + '\')">📋 复制全文</button>' +
+    '<button class="btn-ghost" onclick="rwShowDiff(\'' + s.id + '\')">🔍 原稿vs成品</button>' +
+    '</div>';
 
   return '<div class="rw-hd-row">' +
       '<div class="rw-hd-left">' +
@@ -8835,44 +8839,16 @@ function rwDetailHtml(s){
       '<span class="rw-hd-time">' + esc(s.created_at || '') + '</span>' +
     '</div>' +
     reqBar +
-    // 阶段进度（洗稿进行中时显示）
+    // 阶段进度（洗稿进行中时显示，review/done 时为空）
     '<div id="rwProgress" class="rw-progress" style="margin:8px 0"></div>' +
-    // 主区域：成品全文直接顶上来
+    // 主区域：成品全文直接顶上来（原句一行接一行，每句标注作者，hover 评论）
     '<div class="rw-doc-wrap">' +
-      '<div class="rw-doc-bar">' +
-        '<span class="rw-doc-title">📝 洗稿成品</span>' +
-        (sentCount > 0 ? '<span class="rw-doc-count">共 ' + sentCount + ' 句 · 每句标注作者，hover 可评论让对应专家重写</span>' : '') +
-      '</div>' +
+      (sentCount > 0
+        ? '<div class="rw-doc-bar"><span class="rw-doc-title">📝 洗稿成品</span><span class="rw-doc-count">共 ' + sentCount + ' 句 · 每句标注作者，hover 可评论让该专家重写</span></div>'
+        : '') +
       '<div id="rwFullText" class="rw-fulltext">' + fullTextHtml + '</div>' +
     '</div>' +
-    // 次要操作区：原稿折叠 + 动作按钮 + 分析与审查折叠
-    '<div class="rw-misc">' +
-      '<div class="rw-actions">' +
-        (s.status !== 'done'
-          ? '<button class="btn-primary" onclick="rwFinalize(\'' + s.id + '\')">⚖️ 最终审查 + 记录分工</button>'
-          : '') +
-        '<button class="btn-ghost" onclick="rwToWork(\'' + s.id + '\')">💾 保存为作品</button>' +
-        '<button class="btn-ghost" onclick="rwFillResult(\'' + s.id + '\')">📊 回填成品数据</button>' +
-        '<button class="btn-ghost" onclick="copyFullText(\'' + s.id + '\')">📋 复制全文</button>' +
-      '</div>' +
-      '<div class="rw-insight panel" style="margin-top:10px">' +
-        '<div class="rw-insight-hd" onclick="this.parentElement.classList.toggle(\'open\');this.querySelector(\'.chev\').classList.toggle(\'open\')">' +
-          '<span class="chev">▶</span> 📄 原稿 & 原稿vs成品（校对用）</div>' +
-        '<div class="rw-insight-bd">' +
-          '<div class="muted" style="margin:4px 0 4px">原稿</div>' +
-          '<div class="rw-orig">' + esc(s.original || '') + '</div>' +
-          rwMetricHtml(s.metrics) +
-          '<div style="margin-top:10px"><button class="btn-ghost" onclick="rwShowDiff(\'' + s.id + '\')">🔍 打开原稿 vs 成品对照</button></div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="rw-insight panel" style="margin-top:10px">' +
-        '<div class="rw-insight-hd" onclick="this.parentElement.classList.toggle(\'open\');this.querySelector(\'.chev\').classList.toggle(\'open\')">' +
-          '<span class="chev">▶</span> 🔍 专家分析与审查记录（骨架 / 全员分析 / 审查 / 分工）</div>' +
-        '<div class="rw-insight-bd"><div id="rwStream" class="rw-stream"></div>' +
-          (unt ? '<div class="rw-untouch"><div class="t">🚫 不可动句子（全员共识）</div><ul>' + unt + '</ul></div>' : '') +
-        '</div>' +
-      '</div>' +
-    '</div>';
+    actions;
 }
 
 // 全文流：按 regions 顺序把所有句子拼成一篇连续文章，每句标注作者+颜色，不可动句加锁
@@ -9006,9 +8982,7 @@ function rwHandle(ev){
       if (ev.is_iteration) rwBusy = false;  // 迭代完成解除 busy
       return;
     }
-    // 其余（分析/骨架/审查/记录/评价）→ 折叠面板，需展开才能看
-    const tagMap = { skeleton:'骨架拆解', analysis:'全员分析', review:'原则审查', record:'分工记录', evaluate:'评价', replace:'替换' };
-    appendRwMsg(kind, ev.name || '', tagMap[kind] || kind, ev.text || '');
+    // 其余（分析/骨架/审查/记录/评价）→ 详情页不再展示长文，直接跳过
     return;
   }
   if (ev.type === 'done') {
