@@ -1116,7 +1116,18 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-msg .ts { font-size:10px; color:var(--c-text-mute); margin-left:auto; }
 .rw-typing { color:var(--c-text-mute); font-size:12px; padding:4px 2px; }
 .rw-parts { display:flex; flex-direction:column; gap:12px; margin-top:14px; }
-.rw-fulltext { display:flex; flex-direction:column; gap:6px; margin-top:0; padding:16px 18px; background:var(--c-card); border:1px solid var(--c-border); border-radius:12px; min-height:120px; }
+.rw-fulltext { margin-top:0; padding:18px 22px; background:var(--c-card); border:1px solid var(--c-border); border-radius:12px; min-height:120px; font-size:14.5px; line-height:1.95; color:var(--c-text); }
+.rw-para { position:relative; margin:0 0 14px 0; padding-left:46px; }
+.rw-para:last-child { margin-bottom:0; }
+.rw-para-tag { position:absolute; left:0; top:2px; font-size:10px; color:#fff; font-weight:600; border-radius:6px; padding:2px 7px; letter-spacing:.5px; }
+.rw-s-line { position:relative; display:inline; padding:2px 0; border-radius:4px; transition:background .12s; cursor:text; }
+.rw-s-line:hover { background:var(--c-bg-soft); }
+.rw-s-line strong { font-weight:700; color:var(--c-text); background:linear-gradient(transparent 60%, rgba(255, 193, 7, .35) 60%); }
+.rw-s-line .rw-s-act { position:absolute; right:-28px; top:0; opacity:0; transition:opacity .12s; z-index:2; }
+.rw-s-line:hover .rw-s-act { opacity:1; }
+.rw-s-line .rw-s-act button { font-size:11px; border-radius:6px; padding:2px 7px; border:1px solid var(--c-border); background:var(--c-card); color:var(--c-text-sub); cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.rw-s-line .rw-s-act button:hover { background:var(--primary-bg); color:var(--primary); border-color:var(--primary); }
+.rw-s-line.rw-s-pending { opacity:.7; background:rgba(255,193,7,.12); outline:1px dashed #f59e0b; outline-offset:1px; }
 .rw-hd-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
 .rw-hd-left { display:flex; align-items:center; gap:10px; min-width:0; }
 .rw-hd-title { font-size:16px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -1135,22 +1146,6 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-part .txt { font-size:12.5px; line-height:1.8; white-space:pre-wrap; background:var(--c-bg-soft); border-radius:8px; padding:8px 10px; max-height:200px; overflow-y:auto; }
 .rw-part .acts { margin-top:8px; display:flex; gap:8px; }
 .rw-part .cmt { font-size:12px; color:var(--c-text-sub); background:var(--c-bg-soft); border-radius:6px; padding:6px 10px; margin-top:6px; }
-/* 全文流中的逐句卡片：像文档段落，作者色作左侧色条 + 作者小标签，hover 出评论 */
-.rw-fulltext .rw-sentence { display:flex; gap:10px; align-items:flex-start; border-radius:8px; padding:7px 10px; border-left:3px solid transparent; transition:background .15s; }
-.rw-fulltext .rw-sentence:hover { background:var(--c-bg-soft); }
-.rw-fulltext .rw-s-untouchable { border-left:3px dashed #b45309 !important; background:#fff8eb !important; }
-.rw-fulltext .rw-s-untouchable:hover { background:#fff4e0 !important; }
-.rw-s-unt-icon { flex:none; font-size:12px; margin-top:2px; opacity:.85; }
-.rw-fulltext .rw-s-tag { flex:none; font-size:10.5px; color:#fff; font-weight:600; border-radius:6px; padding:2px 8px; margin-top:2px; letter-spacing:.5px; min-width:34px; text-align:center; }
-.rw-fulltext .rw-s-txt { flex:1; font-size:14px; line-height:1.85; white-space:pre-wrap; color:var(--c-text); }
-.rw-fulltext .rw-s-act { flex:none; opacity:0; transition:opacity .15s; margin-top:2px; }
-.rw-fulltext .rw-sentence:hover .rw-s-act { opacity:1; }
-.rw-fulltext .rw-s-act button { font-size:11px; border-radius:6px; padding:3px 9px; border:1px solid var(--c-border); background:var(--c-card); color:var(--c-text-sub); cursor:pointer; }
-.rw-fulltext .rw-s-act button:hover { background:var(--primary-bg); color:var(--primary); border-color:var(--primary); }
-.rw-fulltext .rw-sentence.rw-s-pending { opacity:.6; }
-.rw-fulltext .rw-s-reply { font-size:11.5px; color:var(--c-text-sub); background:var(--c-bg-soft); border-radius:6px; padding:4px 8px; margin-top:2px; }
-.rw-fulltext .rw-s-reply.pending { color:#ff9500; }
-.rw-fulltext .rw-s-reply .who { font-weight:600; color:var(--primary); }
 .rw-untouch { background:#fff7ed; border:1px solid #fed7aa; border-radius:10px; padding:10px 14px; margin-top:12px; }
 .rw-untouch .t { font-weight:600; color:#c2410c; margin-bottom:6px; }
 .rw-untouch ul { padding-left:18px; font-size:12.5px; color:#7c2d12; line-height:1.9; }
@@ -8755,43 +8750,6 @@ async function openRewrite(rid, quiet){
   }
 }
 
-function rwPartCardHtml(rid, region, p){
-  if (!p || !p.text) return '';
-  const agent = p.agent || '';
-  const r = region || {};
-  return '<div class="rw-part" id="rwpart-' + r.id + '">' +
-    '<div class="h">' + esc(r.label || r.id) +
-      (agent ? '<span class="owner" style="background:' + colorOf(agent) + '">' + esc(agent) + '</span>' : '') +
-      (p.is_new ? '<span class="tag">新负责人</span>' : '') +
-    '</div>' +
-    rwSentenceFlowHtml(rid, r, p, agent) +
-    (p.comments && p.comments.length ? p.comments.map(c =>
-      '<div class="cmt">💬 你：' + esc(c.comment) + '<br>↩ ' + esc(c.reply || '').slice(0, 120) + '</div>'
-    ).join('') : '') +
-  '</div>';
-}
-
-// 逐句成品流：把分区成品切成一句句，每句用负责人颜色做底 + 作者标签，hover 出评论按钮
-function rwSentenceFlowHtml(rid, r, p, agent){
-  const flow = p.sentences && p.sentences.length
-    ? p.sentences
-    : (rwSplitSentences(p.text) || []);
-  if (!flow.length) {
-    return '<div class="rw-flow"><div class="rw-flow-empty">' + esc(p.text) + '</div></div>';
-  }
-  const tagColor = agent ? colorOf(agent) : '#94A3B8';
-  const rows = flow.map((s, i) => {
-    const safe = esc(s);
-    const tag = esc(agent || '');
-    return '<div class="rw-sentence" id="rws-' + rid + '-' + r.id + '-' + i + '" data-region="' + esc(r.id) + '" data-idx="' + i + '" data-txt="' + safe + '" style="background:' + tagColor + '1f;border-left:3px solid ' + tagColor + '">' +
-      '<span class="rw-s-tag" style="background:' + tagColor + '">' + tag + '</span>' +
-      '<span class="rw-s-txt">' + safe + '</span>' +
-      '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'' + esc(r.id) + '\',' + i + ')">💬 评论</button></span>' +
-    '</div>';
-  }).join('');
-  return '<div class="rw-flow" data-flow="' + esc(r.id) + '">' + rows + '</div>';
-}
-
 // 把一段文本切成句子（前端兜底，与后端 split_sentences 一致）
 function rwSplitSentences(text){
   if (!text) return [];
@@ -8851,9 +8809,8 @@ function rwDetailHtml(s){
     actions;
 }
 
-// 全文流：按 regions 顺序把所有句子拼成一篇连续文章，每句标注作者+颜色，不可动句加锁
+// 全文流：按 regions 顺序把所有句子拼成一篇连续文章段落，每句用作者颜色区分，不可动句加粗
 function rwFullTextHtml(rid, regions, parts, untouchable){
-  let seq = 0;
   let html = '';
   const untSet = new Set((untouchable || []).map(u => (u && u.sentence ? u.sentence : '').replace(/[\s\u3000]+/g, '')));
   for (const r of regions || []) {
@@ -8865,27 +8822,25 @@ function rwFullTextHtml(rid, regions, parts, untouchable){
       : (rwSplitSentences(p.text) || []);
     if (!sentences.length) continue;
     const tagColor = agent ? colorOf(agent) : '#94A3B8';
-    // 分区小标题（弱化）
-    html += '<div class="rw-section-hd">' + esc(r.label || r.id) + (agent ? '<span class="rw-section-tag" style="background:' + tagColor + '">' + esc(agent) + '</span>' : '') + '</div>';
+    // 同一分区内的所有句子拼成一个段落，作者颜色作文字色/背景色
+    const lines = [];
     for (let i = 0; i < sentences.length; i++) {
       const s = sentences[i];
-      // 防御：句子可能是 null/undefined/非字符串，统一转字符串并跳过空句
       if (s === null || s === undefined || (typeof s !== 'string' && typeof s !== 'number')) continue;
       const str = String(s).trim();
       if (!str) continue;
-      const safe = esc(str);
       const norm = str.replace(/[\s\u3000]+/g, '');
       const isUnt = untSet.has(norm);
-      const untCls = isUnt ? ' rw-s-untouchable' : '';
-      const untIcon = isUnt ? '<span class="rw-s-unt-icon" title="不可动句子（全员共识）">🔒</span>' : '';
-      html += '<div class="rw-sentence' + untCls + '" id="rws-' + rid + '-' + r.id + '-' + i + '" data-region="' + esc(r.id) + '" data-idx="' + i + '" data-txt="' + safe + '" style="background:' + tagColor + '1f;border-left:3px solid ' + tagColor + '">' +
-        '<span class="rw-s-tag" style="background:' + tagColor + '">' + esc(agent || '') + '</span>' +
-        '<span class="rw-s-txt">' + safe + '</span>' +
-        untIcon +
-        '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'' + esc(r.id) + '\',' + i + ')">💬 评论</button></span>' +
-      '</div>';
-      seq++;
+      const safe = esc(str);
+      // 不可动句加粗
+      const inner = isUnt ? '<strong>' + safe + '</strong>' : safe;
+      lines.push('<span class="rw-s-line" id="rws-' + rid + '-' + r.id + '-' + i + '" data-region="' + esc(r.id) + '" data-idx="' + i + '" data-txt="' + safe + '">' + inner + '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'' + esc(r.id) + '\',' + i + ')">💬</button></span></span>');
     }
+    if (!lines.length) continue;
+    html += '<p class="rw-para" style="color:' + tagColor + '">' +
+      '<span class="rw-para-tag" style="background:' + tagColor + '">' + esc(agent || '') + '</span>' +
+      lines.join('') +
+    '</p>';
   }
   if (!html) return '<div class="rw-flow-empty">（暂无成品内容）</div>';
   return html;
@@ -9066,14 +9021,9 @@ async function rwSentenceComment(rid, regionId, idx){
       sid: rwSid, region: regionId, sentence: sentence, comment: f.comment.trim()
     });
     if (!d.ok) { showToast('⚠ ' + (d.error || '评论失败')); return; }
-    // 就地标记这一句为「重写中」
+    // 就地标记这一句为「重写中」——不往句子里塞块，保持文章连续排版
     el.classList.add('rw-s-pending');
-    // 移除旧的等待/回复标记，追加等待提示
-    const old = el.querySelector('.rw-s-reply'); if (old) old.remove();
-    const w = document.createElement('div');
-    w.className = 'rw-s-reply pending';
-    w.textContent = '💬 你：' + f.comment.trim() + '（专家重写中…）';
-    el.appendChild(w);
+    showToast('💬 已发送，' + (el.closest('.rw-para') && el.closest('.rw-para').querySelector('.rw-para-tag') ? el.closest('.rw-para').querySelector('.rw-para-tag').textContent : '该专家') + ' 正在按你的评论重写这句…');
     connectRwStream(rwSid);
   } finally {
     // 兜底：90 秒后解除 busy（SSE is_iteration 到达时会提前解除）
@@ -9102,27 +9052,33 @@ function rwSentenceUpdate(ev){
     p.sentences = sents;
     p.text = sents.join('\n\n');
   }
-  // 在全文流里定位该句并就地更新
+  // 在全文流里定位该句并就地更新（inline span .rw-s-line）
   const full = document.querySelector('.rw-fulltext');
   if (!full) return;
   let target = null;
-  full.querySelectorAll('.rw-sentence').forEach(s => {
+  full.querySelectorAll('.rw-s-line').forEach(s => {
     if (s.getAttribute('data-txt') === oldTxt) target = s;
   });
   if (!target) {
     const head = oldTxt.replace(/[\s\u3000]+/g, '').slice(0, 12);
-    full.querySelectorAll('.rw-sentence').forEach(s => {
+    full.querySelectorAll('.rw-s-line').forEach(s => {
       const t = (s.getAttribute('data-txt') || '').replace(/[\s\u3000]+/g, '').slice(0, 12);
       if (head && t === head) target = s;
     });
   }
   if (!target) { showToast('已重写，但找不到对应句子，请刷新查看'); return; }
-  const txtEl = target.querySelector('.rw-s-txt');
-  if (txtEl) txtEl.textContent = newTxt;
+  // 重建该句 innerHTML：保留评论按钮；如果新句是某个不可动句，加 strong
+  const untSet = new Set(((rwSessionCache && rwSessionCache.untouchable) || []).map(u => (u && u.sentence ? u.sentence : '').replace(/[\s\u3000]+/g, '')));
+  const newNorm = newTxt.replace(/[\s\u3000]+/g, '');
+  const isUnt = untSet.has(newNorm);
+  const safe = esc(newTxt);
+  const inner = isUnt ? '<strong>' + safe + '</strong>' : safe;
+  // 保留原有的 comment 按钮
+  const actBtn = target.querySelector('.rw-s-act');
+  target.innerHTML = inner + (actBtn ? actBtn.outerHTML : '');
   target.setAttribute('data-txt', newTxt);
   target.classList.remove('rw-s-pending');
-  const w = target.querySelector('.rw-s-reply');
-  if (w) { w.classList.remove('pending'); w.innerHTML = '↩ <span class="who">专家已按你的评论重写</span>' + esc(newTxt); }
+  showToast('✅ 该句已按你的评论重写');
 }
 
 async function rwFinalize(rid){
