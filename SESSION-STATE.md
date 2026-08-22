@@ -21,6 +21,8 @@
 
 ## Completed
 
+- 2026-08-22（加专家会话）：**新增 3 个 WorkBuddy 自定义专家包**（skill-expert-manager 规范流程 init→validate→register）：`frontend-code-expert`（前端界面）、`backend-code-expert`（后端服务）、`product-manager-expert`（产品经理），注册进 my-experts marketplace。
+- 2026-08-22（加专家会话）：**CODEBUDDY.md 强化为「自动分流 + 双视角审查」默认工作流**：新增「⏱ 每次改代码的默认工作流」4 步（自动分流前端/后端 → 按专家人设干活 → 产品双视角审查 → 交付说明），把「产品审查清单」升级为「双视角」（用户视角 + 产品视角，7 条）。三个专家包 description 同步强化明确「何时自动激活」的触发场景。WorkBuddy 无 AI 自动选专家机制，故「自动分流」靠 CODEBUDDY.md 固化默认流程实现。
 - 2026-08-22（装备配置会话）：**新增第 4 份技能方法论 `knowledge/skills_methods/viral-topic-methods.md`**（爆款四基因 + 8 维打分卡 + 传播锚点，来源：WorkBuddy 专家「爆款炼金师」蒸馏；不与已有 title-formulas 重复，拼齐「选题→标题→改写→合规」四段链路）。config.json `skill_methods.max_chars` 3200→4200，验证 4 份方法论共 3967 字完整加载无截断。注入路径为 Agent.say（群聊+洗稿共用），**未触碰任何配音/TTS 配置**，两条链路边界不变。
 - 2026-08-22（装备配置会话）：**git 版本管理落地**：`git init`（main 分支，仓库级身份 linsh），75 文件 33581 行首次入库（commit def694f）。.gitignore 隔离 config.json（API key）、构建产物（*.exe/dist*/build.bak*）、运行数据（output/mine/knowledge_digests/logs）、依赖库快照（_buildlib/.tools/.tools2）。后续改动请正常 commit，不再手动 .bak 备份。
 - 2026-08-22（装备配置会话）：WorkBuddy 侧配置 3 个自动化：抖音对标账号日报（每日 09:00，账号待配置，读取 output/monitor/accounts/ 与 workslib/accounts.json 的 douyin_id）、爆款晨报·公众号10w+（每日 08:30）、抖音飙升榜·选题雷达（每日 10:00）。
