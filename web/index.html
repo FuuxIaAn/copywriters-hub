@@ -4094,11 +4094,12 @@ async function apiSetRender(){
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b><span class="ico" style="width:14px;height:14px"><svg><use href="#ic-speaker"/></svg></span> 配音（IndexTTS）</b>' +
         st(!!tts.has_token, tts.has_token ? '已配置（' + esc(tts.token_masked) + '）' : '未配置') + '</div>' +
       '<div class="muted" style="font-size:12px;margin:6px 0">IndexTTS-2.5 音色克隆。浏览器已登录 modelscope.cn 时可一键自动获取，无需手动找令牌。</div>' +
-      /* --- 推理后端选择 --- */
+      /* --- 推理后端选择（默认 auto：自动判断，能本地就跑本地，否则回退在线） --- */
       '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0">' +
         '<span class="muted" style="font-size:12px">推理后端：</span>' +
-        '<select id="apiTtsBackend" style="flex:1;min-width:200px">' +
-          '<option value="modelscope"' + (tts.backend !== 'local' ? ' selected' : '') + '>🌐 在线（ModelScope 云端，需 Token）</option>' +
+        '<select id="apiTtsBackend" style="flex:1;min-width:220px">' +
+          '<option value="auto"' + ((tts.backend || 'auto') === 'auto' ? ' selected' : '') + '>⚙️ 自动（推荐：本地已装则本地，否则在线）</option>' +
+          '<option value="modelscope"' + (tts.backend === 'modelscope' ? ' selected' : '') + '>🌐 在线（ModelScope 云端，需 Token）</option>' +
           '<option value="local"' + (tts.backend === 'local' ? ' selected' : '') + '>💻 本地（IndexTTS 本机显卡推理，免 Token）</option>' +
         '</select>' +
       '</div>' +
@@ -4119,11 +4120,16 @@ async function apiSetRender(){
       const g = await fetch('/api/system/gpu').then(r => r.json());
       const gp = g.gpu || {};
       if (gp.name) {
-        gpuEl.innerHTML = '🖥️ 本机显卡：<b>' + esc(gp.name) + '</b> · ' + gp.vram_gb + 'GB 显存（可用 ' + gp.vram_free_gb + 'GB）· 驱动 ' + esc(gp.driver) +
-          (gp.compute_cap ? ' · 计算能力 ' + esc(gp.compute_cap) : '') +
-          (gp.compute_cap && parseFloat(gp.compute_cap) >= 9.0
-            ? ' — ✅ 可运行本地 IndexTTS（RTX 50系 Blackwell）'
-            : ' — ⚠️ 显卡较老，本地推理可能较慢');
+        let gpuHtml = '🖥️ 本机显卡：<b>' + esc(gp.name) + '</b> · ' + gp.vram_gb + 'GB 显存（可用 ' + gp.vram_free_gb + 'GB）· 驱动 ' + esc(gp.driver) +
+          (gp.compute_cap ? ' · 计算能力 ' + esc(gp.compute_cap) : '');
+        if (gp.compute_cap && parseFloat(gp.compute_cap) >= 9.0) {
+          gpuHtml += tts.local_ready
+            ? '<br>✅ <b>本地 IndexTTS 已安装</b>，自动模式下将优先本地推理（免费、免排队）'
+            : '<br>⚙️ 显卡支持本地 IndexTTS（RTX 50系），但尚未安装本地环境——<b>自动模式下会先走在线</b>，装好本地后自动切换';
+        } else {
+          gpuHtml += '<br>⚠️ 显卡较老，本地推理可能较慢';
+        }
+        gpuEl.innerHTML = gpuHtml;
       } else {
         gpuEl.innerHTML = '<span class="muted">⚠️ 未检测到 NVIDIA 显卡，本地 IndexTTS 将回退到 CPU 推理（较慢），建议在线模式。</span>';
       }

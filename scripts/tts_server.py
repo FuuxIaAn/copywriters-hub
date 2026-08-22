@@ -100,7 +100,8 @@ def get_settings(output_dir: str) -> dict:
         "ok": True,
         "has_token": bool(token),
         "token_masked": (token[:6] + "..." + token[-4:]) if len(token) > 12 else ("***" if token else ""),
-        "backend": s.get("backend", "modelscope"),   # modelscope(在线) / local(本地 IndexTTS)
+        "backend": _load_backend(output_dir),   # auto(自动) / modelscope(在线) / local(本地)
+        "local_ready": _local_index_tts_ready(),
     }
 
 
@@ -108,18 +109,19 @@ def save_settings(output_dir: str, token: str, backend: str = "") -> dict:
     token = (token or "").strip()
     s = _read_json(os.path.join(_dir(output_dir), "settings.json"), {})
     if backend:
-        s["backend"] = "local" if backend == "local" else "modelscope"
+        s["backend"] = backend if backend in ("auto", "modelscope", "local") else "auto"
     else:
         s.pop("backend", None)
     s["token"] = token
     _write_json(os.path.join(_dir(output_dir), "settings.json"), s)
     return {"ok": True, "has_token": bool(token),
-            "backend": s.get("backend", "modelscope")}
+            "backend": _load_backend(output_dir)}
 
 
 def _load_backend(output_dir: str) -> str:
     s = _read_json(os.path.join(_dir(output_dir), "settings.json"), {})
-    return (s.get("backend") or "modelscope") if (s.get("backend") in ("modelscope", "local")) else "modelscope"
+    b = (s.get("backend") or "auto").strip()
+    return b if b in ("auto", "modelscope", "local") else "auto"
 
 
 def _load_token(output_dir: str) -> str:
@@ -198,6 +200,47 @@ def _record_diagnostic(output_dir: str, **data) -> None:
         pass
 
 
+def _local_install_root() -> str:
+    """IndexTTS 本地安装根目录。默认 E:\\indextts（模型+独立venv+CLI都在里面）。
+    可用环境变量 WB_INDEX_TTS_DIR 覆盖。"""
+    env = os.environ.get("WB_INDEX_TTS_DIR", "").strip()
+    if env:
+        env = os.path.abspath(env)
+        if os.path.isfile(os.path.join(env, "config.yaml")):
+            return os.path.dirname(env)  # 指向模型目录时取上一级为根
+        return env
+    return os.path.join("E:", os.sep, "indextts")
+
+
+def _local_venv_python(root: str) -> str:
+    """本地 IndexTTS 独立 venv 的 python.exe（Windows）。"""
+    return os.path.join(root, ".venv", "Scripts", "python.exe")
+
+
+def _local_cli_script(root: str) -> str:
+    """本地 IndexTTS 合成 CLI 脚本（E 盘根下）。"""
+    return os.path.join(root, "local_tts_cli.py")
+
+
+def _local_index_tts_ready() -> bool:
+    """本地 IndexTTS 是否就绪：独立 venv python + CLI 脚本 + 模型 config.yaml 都存在。"""
+    root = _local_install_root()
+    return (os.path.isfile(_local_venv_python(root))
+            and os.path.isfile(_local_cli_script(root))
+            and os.path.isfile(os.path.join(root, "model", "config.yaml")))
+
+
+def _resolve_backend(output_dir: str) -> str:
+    """解析最终生效的推理后端。auto 模式下：本地就绪 → local，否则 → modelscope。
+    优先级：环境变量 WB_TTS_BACKEND > settings.backend（auto 视为 auto）。"""
+    env = os.environ.get("WB_TTS_BACKEND", "").strip()
+    backend = env or _load_backend(output_dir)
+    if backend in ("local", "modelscope"):
+        return backend
+    # auto：本地就绪则本地，否则在线
+    return "local" if _local_index_tts_ready() else "modelscope"
+
+
 def _synthesize_with_retry(output_dir: str, ref_path: str, text: str, params: dict,
                            stage, cancelled=lambda: False, label: str = "single") -> tuple[str, int]:
     """Run one remote synthesis with bounded, connection-aware recovery.
@@ -205,113 +248,11 @@ def _synthesize_with_retry(output_dir: str, ref_path: str, text: str, params: di
     A timed-out predict is never followed by another predict while its worker is alive;
     submitting another request then would create duplicate jobs in ModelScope's queue.
     """
-    # 本地 IndexTTS 后端（WB_TTS_BACKEND=local 或 settings.backend=local）→ 本地推理
-    backend = os.environ.get("WB_TTS_BACKEND", "") or _load_backend(output_dir)
+    # 后端决策：auto 自动本地/在线切换
+    backend = _resolve_backend(output_dir)
     if backend == "local":
         return _synthesize_local_index_tts(output_dir, ref_path, text, params, stage, cancelled, label)
     token = _load_token(output_dir)
-
-
-def _gpu_info() -> dict:
-    """探测本机 GPU（NVIDIA）。返回 {name, vram_gb, vram_free_gb, driver, compute_cap, cuda}。"""
-    info = {"name": "", "vram_gb": 0, "vram_free_gb": 0, "driver": "", "compute_cap": "", "cuda": "", "ok": False}
-    # 1) nvidia-smi 最可靠
-    try:
-        import subprocess
-        out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,memory.total,memory.free,driver_version,compute_cap",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=10)
-        if out.returncode == 0 and out.stdout.strip():
-            parts = [p.strip() for p in out.stdout.strip().split(",")]
-            info["name"] = parts[0] if len(parts) > 0 else ""
-            info["vram_gb"] = round(float(parts[1]) / 1024, 1) if len(parts) > 1 and parts[1] else 0
-            info["vram_free_gb"] = round(float(parts[2]) / 1024, 1) if len(parts) > 2 and parts[2] else 0
-            info["driver"] = parts[3] if len(parts) > 3 else ""
-            info["compute_cap"] = parts[4] if len(parts) > 4 else ""
-            info["ok"] = bool(info["name"])
-    except Exception:  # noqa: BLE001
-        pass
-    # 2) torch cuda 兜底
-    try:
-        import torch
-        if torch.cuda.is_available():
-            cap = torch.cuda.get_device_capability(0)
-            info["cuda"] = torch.version.cuda or ""
-            if not info["name"]:
-                info["name"] = torch.cuda.get_device_name(0)
-                info["vram_gb"] = round(torch.cuda.get_device_properties(0).total_memory / 1024**3, 1)
-                info["compute_cap"] = f"{cap[0]}.{cap[1]}" if cap else ""
-                info["ok"] = True
-    except Exception:  # noqa: BLE001
-        pass
-    return info
-
-
-def _synthesize_local_index_tts(output_dir: str, ref_path: str, text: str, params: dict,
-                                stage, cancelled=lambda: False, label: str = "single") -> tuple[str, int]:
-    """本地 IndexTTS-2.5 推理。首次会加载模型（耗时较长），后续复用全局实例。
-    若本地模型未就绪（未下载），返回清晰错误引导用户先初始化本地模型。"""
-    stage("本地 IndexTTS 推理…")
-
-    # 全局模型实例（进程内复用，避免每次重新加载）
-    global _LOCAL_INDEX_TTS
-    if _LOCAL_INDEX_TTS is None:
-        model_dir = os.environ.get("WB_INDEX_TTS_DIR", "")
-        if not model_dir or not os.path.isdir(model_dir):
-            gpu = _gpu_info()
-            gpu_txt = f"{gpu['name']} · {gpu['vram_gb']}GB显存" if gpu.get("name") else "未检测到可用 NVIDIA 显卡"
-            raise RuntimeError(
-                "本地 IndexTTS 模型未就绪。请先：\n"
-                "1) 下载并解压 IndexTTS-2.5 模型（推荐从 HuggingFace IndexTeam/IndexTTS-2.5 拉取，约 4GB）\n"
-                "2) 设置环境变量 WB_INDEX_TTS_DIR 指向模型目录\n"
-                f"当前显卡：{gpu_txt}"
-            )
-        try:
-            from IndexTTS import IndexTTS as _IndexTTS
-            stage("正在加载本地 IndexTTS 模型（首次加载较慢）…")
-            _LOCAL_INDEX_TTS = _IndexTTS(
-                model_dir,
-                config_name="config.yaml",
-                compile=False,
-                load_asr=False,
-                load_vq=False,
-                device="cuda" if _gpu_info().get("name") else "cpu",
-                dtype="fp16" if _gpu_info().get("name") else "fp32",
-            )
-        except Exception as e:  # noqa: BLE001
-            raise RuntimeError(f"本地 IndexTTS 模型加载失败：{e}") from e
-
-    if cancelled():
-        raise RuntimeError("已取消")
-
-    # 合成：IndexTTS 的 synthesize 方法（零样本音色克隆）
-    try:
-        import numpy as np
-        from scipy.io import wavfile
-        out_path = os.path.join(_dir(output_dir, "audio"), f"local_{uuid.uuid4().hex[:8]}.wav")
-        stage("本地合成音频中…")
-        wav = _LOCAL_INDEX_TTS.synthesize(
-            text=text,
-            ref_audio_path=ref_path,
-            temperature=0.3,
-            top_p=0.7,
-            top_k=20,
-            do_sample=True,
-            speed_factor=float(params.get("duration_factor", 1.0)),
-            progress_callback=None,
-        )
-        if wav is None:
-            raise RuntimeError("本地合成返回空结果")
-        sr, data = (wav.get("sample_rate", 24000), wav.get("audio"))
-        if data is None:
-            raise RuntimeError("本地合成未返回音频数据")
-        if isinstance(data, list):
-            data = np.concatenate(data)
-        wavfile.write(out_path, sr, data.astype(np.float32) if data.dtype != np.float32 else data)
-        return out_path, 1
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"本地 IndexTTS 合成失败：{e}") from e
     args = _build_args(ref_path, text, params["lang"], params["emo_mode"],
                        params["emo_vec"], params["emo_weight"], params["duration_factor"],
                        params.get("emo_random", False), params.get("emo_text", ""))
@@ -389,6 +330,91 @@ def _synthesize_local_index_tts(output_dir: str, ref_path: str, text: str, param
                 time.sleep(min(0.5, max(0.0, deadline - time.monotonic())))
     category, _ = _error_category(last_error)
     raise TimeoutError(f"{category}。已自动尝试 {attempt} 次并停止，避免无限等待；请检查 Token、参考音频和 ModelScope 服务状态。")
+
+
+def _gpu_info() -> dict:
+    """探测本机 GPU（NVIDIA）。返回 {name, vram_gb, vram_free_gb, driver, compute_cap, cuda}。"""
+    info = {"name": "", "vram_gb": 0, "vram_free_gb": 0, "driver": "", "compute_cap": "", "cuda": "", "ok": False}
+    # 1) nvidia-smi 最可靠
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total,memory.free,driver_version,compute_cap",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10)
+        if out.returncode == 0 and out.stdout.strip():
+            parts = [p.strip() for p in out.stdout.strip().split(",")]
+            info["name"] = parts[0] if len(parts) > 0 else ""
+            info["vram_gb"] = round(float(parts[1]) / 1024, 1) if len(parts) > 1 and parts[1] else 0
+            info["vram_free_gb"] = round(float(parts[2]) / 1024, 1) if len(parts) > 2 and parts[2] else 0
+            info["driver"] = parts[3] if len(parts) > 3 else ""
+            info["compute_cap"] = parts[4] if len(parts) > 4 else ""
+            info["ok"] = bool(info["name"])
+    except Exception:  # noqa: BLE001
+        pass
+    # 2) torch cuda 兜底
+    try:
+        import torch
+        if torch.cuda.is_available():
+            cap = torch.cuda.get_device_capability(0)
+            info["cuda"] = torch.version.cuda or ""
+            if not info["name"]:
+                info["name"] = torch.cuda.get_device_name(0)
+                info["vram_gb"] = round(torch.cuda.get_device_properties(0).total_memory / 1024**3, 1)
+                info["compute_cap"] = f"{cap[0]}.{cap[1]}" if cap else ""
+                info["ok"] = True
+    except Exception:  # noqa: BLE001
+        pass
+    return info
+
+
+def _synthesize_local_index_tts(output_dir: str, ref_path: str, text: str, params: dict,
+                                stage, cancelled=lambda: False, label: str = "single") -> tuple[str, int]:
+    """本地 IndexTTS-2.5 推理（子进程模式）：exe 调用 E 盘独立 venv 里的
+    local_tts_cli.py 完成合成，避免把 torch/IndexTTS 打进 exe。
+    返回 (wav 路径, 尝试次数)。"""
+    import subprocess
+    stage("本地 IndexTTS 推理…")
+    root = _local_install_root()
+    venv_py = _local_venv_python(root)
+    cli = _local_cli_script(root)
+    model = os.path.join(root, "model")
+    if not _local_index_tts_ready():
+        gpu = _gpu_info()
+        gpu_txt = f"{gpu['name']} · {gpu['vram_gb']}GB显存" if gpu.get("name") else "未检测到可用 NVIDIA 显卡"
+        raise RuntimeError(
+            "本地 IndexTTS 未就绪。请先在 E:\\indextts 完成安装（IndexTTS 独立环境 + 下载模型）。\n"
+            f"当前显卡：{gpu_txt}"
+        )
+    # 参数序列化到临时 json，避免命令行长度/编码问题
+    payload = {
+        "ref_path": ref_path,
+        "text": text,
+        "lang": params.get("lang", "ZH"),
+        "speed_factor": float(params.get("duration_factor", 1.0)),
+        "model_dir": model,
+    }
+    payload_path = os.path.join(_dir(output_dir, "audio"), f"local_task_{uuid.uuid4().hex[:8]}.json")
+    with open(payload_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+    out_wav = os.path.join(_dir(output_dir, "audio"), f"local_{uuid.uuid4().hex[:8]}.wav")
+    try:
+        stage("调用本地 IndexTTS 合成（首次加载模型较慢）…")
+        proc = subprocess.run(
+            [venv_py, cli, "--payload", payload_path, "--out", out_wav],
+            capture_output=True, text=True, encoding="utf-8", timeout=1200,
+        )
+        if proc.returncode != 0:
+            err = (proc.stderr or "").strip() or (proc.stdout or "").strip() or "未知错误"
+            raise RuntimeError(f"本地 IndexTTS 合成失败：{err[-500:]}")
+        if not os.path.isfile(out_wav):
+            raise RuntimeError("本地 IndexTTS 未产出音频文件")
+        return out_wav, 1
+    finally:
+        try:
+            os.remove(payload_path)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------- 音色预设
