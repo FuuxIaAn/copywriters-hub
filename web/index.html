@@ -1126,7 +1126,13 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-s-line:hover .rw-s-act { opacity:1; pointer-events:auto; }
 .rw-s-line .rw-s-act button { font-size:11px; line-height:1; border-radius:10px; padding:2px 8px; border:1px solid var(--c-border); background:var(--c-card); color:var(--c-text-sub); cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.08); }
 .rw-s-line .rw-s-act button:hover { background:var(--primary-bg); color:var(--primary); border-color:var(--primary); }
-.rw-s-line.rw-s-pending { opacity:.7; background:rgba(255,193,7,.12); outline:1px dashed #f59e0b; outline-offset:1px; }
+.rw-s-line.rw-s-pending { position:relative; display:inline-block; opacity:1; }
+/* 重写中：原句变灰 + 模糊 + 上方盖「重写中…」遮罩 */
+.rw-s-line.rw-s-pending .rw-s-blur { display:inline; color:var(--c-text-sub); filter:blur(3px); opacity:.5; user-select:none; pointer-events:none; }
+.rw-s-line.rw-s-pending .rw-s-mask { display:inline-block; position:relative; margin-left:6px; padding:2px 10px; font-size:11px; font-weight:700; color:#fff; background:#f59e0b; border-radius:10px; vertical-align:middle; animation:rwBlink 1s ease-in-out infinite; box-shadow:0 1px 4px rgba(0,0,0,.2); }
+/* 不可动句 🔒 角标：附着在加粗句末尾，垂直居中 */
+.rw-unt-tag { display:inline-block; margin-left:3px; font-size:10px; vertical-align:middle; opacity:.85; }
+.rw-s-line strong .rw-unt-tag, .rw-s-line .rw-unt-tag { color:#f59e0b; }
 .rw-s-line .rw-s-rewriting { display:inline-block; margin-left:6px; padding:1px 8px; font-size:11px; font-weight:600; color:#fff; background:#f59e0b; border-radius:10px; vertical-align:middle; animation:rwBlink 1s ease-in-out infinite; }
 @keyframes rwBlink { 0%,100%{opacity:1;} 50%{opacity:.55;} }
 .rw-hd-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
@@ -1742,8 +1748,9 @@ function showToast(msg, action) {
 }
 
 /* ================= 弹窗系统 ================= */
-function openModal({title, sub='', fields, okText='确定', danger=false, customBody=''}) {
+function openModal({title, sub='', fields, okText='确定', danger=false, customBody='', enterSubmit=false}) {
   // fields: [{name,label,type:'text'|'textarea',placeholder,value,rows}]
+  // enterSubmit=true 时，输入框按 Enter 直接提交（等价点确定），Shift+Enter 换行；适合「评论/单行输入」弹窗。
   const root = $('modalRoot');
   const box = document.createElement('div');
   box.className = 'modal-mask';
@@ -1775,6 +1782,7 @@ function openModal({title, sub='', fields, okText='确定', danger=false, custom
   const first = box.querySelector('input,textarea');
   if (first) setTimeout(()=>first.focus(), 40);
   const close = v => { animateRemove(box, 'closing', 150); if (resolveFn){ const r=resolveFn; resolveFn=null; r(v);} };
+  const submit = () => { box.querySelector('[data-act=ok]').click(); };
   box.querySelector('[data-act=cancel]').addEventListener('click', ()=>close(null));
   box.querySelector('[data-act=ok]').addEventListener('click', ()=>{
     const out = {};
@@ -1790,6 +1798,17 @@ function openModal({title, sub='', fields, okText='确定', danger=false, custom
     });
     close(out);
   });
+  // enterSubmit=true 时：Enter 提交，Shift+Enter 换行（仅作用于输入框，不劫持按钮/Radio）
+  if (enterSubmit) {
+    box.querySelectorAll('input[type=text], textarea').forEach(el => {
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          submit();
+        }
+      });
+    });
+  }
   // 点遮罩关闭：危险操作除外（防误触，需显式点「取消」或「确定」）
   box.addEventListener('mousedown', e => { if (e.target === box && !danger) close(null); });
   const escHandler = ev => { if (ev.key === 'Escape') { close(null); document.removeEventListener('keydown', escHandler); } };
@@ -8293,6 +8312,7 @@ try{
 }catch(_){}
 /* ================= 洗稿工坊 ================= */
 let rwSessions = [], rwMeta = null, rwCurrent = null, rwEs = null, rwSid = null, rwBusy = false, rwPrefillOriginal = '', rwPrefillMetrics = null, rwFilter = { q:'', status:'', sort:'new' };
+let rwCommentQueue = [];   // 重写进行中时的评论排队（当前句重写完成后自动逐个发送）
 let rwSessionCache = null;   // 当前打开的洗稿 session 缓存（用于 SSE 局部刷新全文流）
 const rwRenderedSeqs = new Set();
 const RW_STATUS = { running:'进行中', review:'待定稿', iterating:'迭代中', done:'已完成' };
@@ -8943,11 +8963,15 @@ function rwDetailHtml(s){
     '<button class="btn-ghost" onclick="rwShowDiff(\'' + s.id + '\')">🔍 原稿vs成品</button>' +
     '</div>';
 
-  // 成稿后下一步引导（明确告诉老板下一步该点什么）
+  // 成稿后下一步引导（明确告诉老板下一步该点什么；放在文章末尾）
   const nextGuide = s.status === 'done'
     ? '<div class="rw-guide">🎉 已完成！下一步可：<b>保存为作品</b>入库、<b>复制全文</b>去发布、或<b>回填成品数据</b>让阿数评价负责人。</div>'
     : (s.status === 'review' || s.status === 'iterating'
-        ? '<div class="rw-guide">✅ 初稿已出。下一步：①鼠标 hover 句子点 💬 评论，该专家会只重写这一句；②满意后点 <b>最终审查 + 记录分工</b>。</div>'
+        ? '<div class="rw-guide">' +
+            '<div style="margin-bottom:6px">✅ 初稿已出。可这样完善：</div>' +
+            '<div style="margin-bottom:6px">① 鼠标悬停在任意一句话上，点 <b>💬</b> 评论，让负责它的专家只重写这一句（原句会变灰显示「重写中」）。</div>' +
+            '<div>② 满意后，点下面的 <button class="btn-primary" style="padding:3px 12px;font-size:12px;vertical-align:middle" onclick="rwFinalize(\'' + s.id + '\')">⚖️ 最终审查 + 记录分工</button>，阿审会复核原则，阿数会记录每个区域由谁负责。</div>' +
+          '</div>'
         : '');
 
   // 详情区默认折叠：只显示标题+状态+折叠按钮；展开后才显示进度、要求、操作
@@ -9043,10 +9067,10 @@ function rwFullTextHtml(rid, regions, parts, untouchable){
       if (!str) continue;
       const isUnt = rwIsUntouchable(str, unt);
       const safe = esc(str);
-      const inner = isUnt ? '<strong>' + safe + '</strong>' : safe;
+      const inner = isUnt ? ('<strong>' + safe + '</strong><span class="rw-unt-tag" title="不可动句，各分区必须保留">🔒</span>') : safe;
       const agent = agents[i] || final.agent || '';
       const color = agent ? colorOf(agent) : '#94A3B8';
-      lines.push('<span class="rw-s-line" id="rws-' + rid + '-final-' + i + '" data-region="final" data-idx="' + i + '" data-txt="' + safe + '" style="color:' + color + '">' + inner + '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'final\',' + i + ')">💬</button></span></span>');
+      lines.push('<span class="rw-s-line" id="rws-' + rid + '-final-' + i + '" data-rid="' + rid + '" data-region="final" data-idx="' + i + '" data-txt="' + safe + '" style="color:' + color + '">' + inner + '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'final\',' + i + ')">💬</button></span></span>');
     }
   }
   // 没有 final 时回退到按 regions 顺序拼（兼容旧数据）：剥作者前缀，全部连成一篇连续文章
@@ -9068,8 +9092,8 @@ function rwFullTextHtml(rid, regions, parts, untouchable){
         if (!clean) continue;
         const isUnt = rwIsUntouchable(clean, unt);
         const safe = esc(clean);
-        const inner = isUnt ? '<strong>' + safe + '</strong>' : safe;
-        lines.push('<span class="rw-s-line" id="rws-' + rid + '-' + r.id + '-' + i + '" data-region="' + esc(r.id) + '" data-idx="' + i + '" data-txt="' + safe + '" style="color:' + color + '">' + inner + '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'' + esc(r.id) + '\',' + i + ')">💬</button></span></span>');
+        const inner = isUnt ? ('<strong>' + safe + '</strong><span class="rw-unt-tag" title="不可动句，各分区必须保留">🔒</span>') : safe;
+        lines.push('<span class="rw-s-line" id="rws-' + rid + '-' + r.id + '-' + i + '" data-rid="' + rid + '" data-region="' + esc(r.id) + '" data-idx="' + i + '" data-txt="' + safe + '" style="color:' + color + '">' + inner + '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'' + esc(r.id) + '\',' + i + ')">💬</button></span></span>');
       }
     }
   }
@@ -9145,6 +9169,7 @@ function rwHandle(ev){
       if (ev.region) {
         rwSentenceUpdate(ev);
         rwBusy = false;   // 句级重写完成解除 busy
+        rwConsumeCommentQueue();  // 若有排队的评论，自动发下一条
       }
       return;
     }
@@ -9157,7 +9182,7 @@ function rwHandle(ev){
         const r = (rwMeta && rwMeta.regions || []).find(x => x.id === ev.region);
         if (r) upsertRwPart(ev);
       }
-      if (ev.is_iteration) rwBusy = false;  // 迭代完成解除 busy
+      if (ev.is_iteration) { rwBusy = false; rwConsumeCommentQueue(); }  // 迭代完成解除 busy
       return;
     }
     // 其余（分析/骨架/审查/记录/评价）→ 详情页不再展示长文，直接跳过
@@ -9212,15 +9237,20 @@ function upsertRwPart(ev){
 
 async function rwComment(rid, regionId){
   if (!rwSid) { showToast('会话未就绪，请重新打开'); return; }
-  if (rwBusy) { showToast('⏳ 专家正在重写中，请稍候…'); return; }
   const f = await openModal({
     title: '💬 评论该区域',
     sub: '告诉负责这个区域的专家哪里不对、想要什么方向，他会据此重写这一部分。',
     fields: [{ name:'comment', label:'你的评论', type:'textarea', rows:4, placeholder:'例如：开头还是太软，换成直接抛出反常识结论…' }],
-    okText: '发送并让专家重写'
+    okText: '发送并让专家重写',
+    enterSubmit: true
   });
   if (!f || !f.comment || !f.comment.trim()) return;
-  if (rwBusy) { showToast('⏳ 专家正在重写中，请稍候…'); return; }
+  // 正在重写别处：入队，等当前重写完成后再自动发送（老板可在重写过程中继续提评论）
+  if (rwBusy) {
+    rwCommentQueue.push({ kind:'region', rid, regionId, comment:f.comment.trim() });
+    showToast('⏳ 当前正在重写其他句，你的评论已排队，完成后自动发送');
+    return;
+  }
   rwBusy = true;
   try {
     const d = await post('/api/rewrite/' + rid + '/comment', { sid: rwSid, region: regionId, comment: f.comment.trim() });
@@ -9236,52 +9266,105 @@ async function rwComment(rid, regionId){
     connectRwStream(rwSid);
   } finally {
     // SSE 事件流到达 is_iteration 消息时解除 busy（见 rwHandle）；这里兜底 90 秒
-    setTimeout(() => { rwBusy = false; }, 90000);
+    setTimeout(() => { rwBusy = false; rwConsumeCommentQueue(); }, 90000);
+  }
+}
+
+// 给某句加「重写中」视觉：变灰 + 模糊 + 居中显示「重写中」
+function rwMarkPending(el){
+  if (!el) return;
+  el.classList.add('rw-s-pending');
+  const data = el.getAttribute('data-txt') || '';
+  const rid = el.getAttribute('data-rid') || '';
+  const region = el.getAttribute('data-region') || '';
+  const idx = el.getAttribute('data-idx') || '0';
+  // 保留原句文本但整体模糊（防抖动画），上方覆盖"重写中"半透明层
+  const blur = document.createElement('span');
+  blur.className = 'rw-s-blur';
+  blur.textContent = data || '';
+  el.innerHTML = '';
+  el.appendChild(blur);
+  const mask = document.createElement('span');
+  mask.className = 'rw-s-mask';
+  mask.textContent = '🔄 重写中…';
+  el.appendChild(mask);
+  // 保留评论按钮（可继续对该句追加评论）——内联直接传参，避免 this 指向问题
+  const act = document.createElement('span');
+  act.className = 'rw-s-act';
+  act.innerHTML = '<button onclick="rwSentenceComment(\'' + rid + '\',\'' + region + '\',' + idx + ')">💬</button>';
+  el.appendChild(act);
+}
+function rwUnmarkPending(el){
+  if (!el) return;
+  el.classList.remove('rw-s-pending');
+  const bl = el.querySelector('.rw-s-blur');
+  const mk = el.querySelector('.rw-s-mask');
+  if (bl) bl.remove();
+  if (mk) mk.remove();
+}
+
+// 重写完成后消费评论队列：逐个发送排队的评论（递归）
+function rwConsumeCommentQueue(){
+  if (rwBusy || !rwCommentQueue.length) return;
+  const item = rwCommentQueue.shift();
+  if (!item) return;
+  if (item.kind === 'region') {
+    rwBusy = true;
+    post('/api/rewrite/' + item.rid + '/comment', { sid: rwSid, region: item.regionId, comment: item.comment }).then(d => {
+      if (!d.ok) { showToast('⚠ ' + (d.error || '排队评论失败')); }
+      connectRwStream(rwSid);
+      setTimeout(() => { rwBusy = false; rwConsumeCommentQueue(); }, 1200);
+    });
+  } else if (item.kind === 'sentence') {
+    rwBusy = true;
+    post('/api/rewrite/' + item.rid + '/sentence_comment', { sid: rwSid, region: item.regionId, sentence: item.sentence, comment: item.comment }).then(d => {
+      if (!d.ok) { showToast('⚠ ' + (d.error || '排队评论失败')); }
+      connectRwStream(rwSid);
+      setTimeout(() => { rwBusy = false; rwConsumeCommentQueue(); }, 1200);
+    });
   }
 }
 
 // 逐句评论：让负责该分区的专家只按你的评论重写这一句
 async function rwSentenceComment(rid, regionId, idx){
   if (!rwSid) { showToast('会话未就绪，请重新打开'); return; }
-  if (rwBusy) { showToast('⏳ 专家正在重写中，请稍候…'); return; }
   const el = document.getElementById('rws-' + rid + '-' + regionId + '-' + idx);
   if (!el) return;
   const sentence = el.getAttribute('data-txt') || '';
   if (!sentence.trim()) { showToast('这句话没有内容'); return; }
   const f = await openModal({
     title: '💬 评论这一句',
-    sub: '把想调整的方向告诉负责这句的专家，他会只按你的评论重写这一句（不改其他句）。',
+    sub: '把想调整的方向告诉负责这句的专家，他会只按你的评论重写这一句（不改其他句）。\n按 Enter 发送，Shift+Enter 换行。',
     fields: [{ name:'comment', label:'你的评论', type:'textarea', rows:3, placeholder:'例如：这句太软，换成更扎心的反问…' }],
-    okText: '发送并让专家重写这句'
+    okText: '发送并让专家重写这句',
+    enterSubmit: true
   });
   if (!f || !f.comment || !f.comment.trim()) return;
-  if (rwBusy) { showToast('⏳ 专家正在重写中，请稍候…'); return; }
+  // 正在重写别处：入队，当前句重写完成后自动发送
+  if (rwBusy) {
+    rwCommentQueue.push({ kind:'sentence', rid, regionId, sentence, comment:f.comment.trim() });
+    showToast('⏳ 当前正在重写其他句，你的评论已排队，完成后自动发送');
+    return;
+  }
   rwBusy = true;
   try {
     const d = await post('/api/rewrite/' + rid + '/sentence_comment', {
       sid: rwSid, region: regionId, sentence: sentence, comment: f.comment.trim()
     });
     if (!d.ok) { showToast('⚠ ' + (d.error || '评论失败')); return; }
-    // 明确标记「这句正在重写」：加高亮类 + 句内插入醒目的「重写中」徽标，
+    // 明确标记「这句正在重写」：变灰 + 模糊 + 居中显示「重写中…」，
     // 并滚动到该句，让老板一眼看到正在重写的是哪一句。
-    el.classList.add('rw-s-pending');
-    const badge = document.createElement('span');
-    badge.className = 'rw-s-rewriting';
-    badge.textContent = '🔄 重写中…';
-    el.appendChild(badge);
+    rwMarkPending(el);
     if (el.scrollIntoView) { try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch(_){} }
     showToast('💬 已发送，该分区专家正在按你的评论重写这句…');
     connectRwStream(rwSid);
   } finally {
-    // 兜底：90 秒后解除 busy（SSE is_iteration 到达时会提前解除），并清理残留的重写徽标
+    // 兜底：90 秒后解除 busy（SSE is_iteration 到达时会提前解除），并清理残留的重写占位
     setTimeout(() => {
       rwBusy = false;
+      rwConsumeCommentQueue();
       const el2 = document.getElementById('rws-' + rid + '-' + regionId + '-' + idx);
-      if (el2) {
-        el2.classList.remove('rw-s-pending');
-        const b = el2.querySelector('.rw-s-rewriting');
-        if (b) b.remove();
-      }
+      if (el2) { rwUnmarkPending(el2); }
     }, 90000);
   }
 }
@@ -9321,16 +9404,29 @@ function rwSentenceUpdate(ev){
       if (head && t === head) target = s;
     });
   }
-  if (!target) { showToast('已重写，但找不到对应句子，请刷新查看'); return; }
-  // 重建该句 innerHTML：保留评论按钮；如果新句是某个不可动句，加 strong
+  if (!target) {
+    // 找不到对应句子：解除所有「重写中」占位，避免句子卡在灰色条；并提示刷新
+    full.querySelectorAll('.rw-s-line.rw-s-pending').forEach(s => rwUnmarkPending(s));
+    showToast('已重写，但找不到对应句子，请刷新查看');
+    return;
+  }
+  // 清除重写中的占位（变灰+模糊层）
+  rwUnmarkPending(target);
+  // 重建该句 innerHTML：保留评论按钮；如果新句是某个不可动句，加 strong + 🔒 角标
   const unt = ((rwSessionCache && rwSessionCache.untouchable) || []);
   const isUnt = rwIsUntouchable(newTxt, unt);
   const safe = esc(newTxt);
-  const inner = isUnt ? '<strong>' + safe + '</strong>' : safe;
+  const inner = isUnt
+    ? ('<strong>' + safe + '</strong><span class="rw-unt-tag" title="不可动句，各分区必须保留">🔒</span>')
+    : safe;
   // 保留原有的 comment 按钮
   const actBtn = target.querySelector('.rw-s-act');
   target.innerHTML = inner + (actBtn ? actBtn.outerHTML : '');
   target.setAttribute('data-txt', newTxt);
+  // 确保 data-rid / data-region 齐全（供重写中评论按钮回调定位）
+  const rid = target.getAttribute('data-rid') || '';
+  const rg = target.getAttribute('data-region') || '';
+  if (!rid || !rg) { target.setAttribute('data-rid', ev.rid || ''); }
   target.classList.remove('rw-s-pending');
   showToast('✅ 该句已按你的评论重写');
 }

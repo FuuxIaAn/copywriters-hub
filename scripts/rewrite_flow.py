@@ -349,20 +349,46 @@ def _normalize(t: str) -> str:
 
 
 def _enforce_untouchable(sentences: list, agents: list, untouchable: list) -> tuple:
-    """硬校验：确保所有不可动句子都原样出现在成品中。
-    若某个不可动句缺失，则把原句追加到末尾（保证不被改动丢失）。返回 (sentences, agents)。"""
-    if not untouchable:
+    """硬校验 + 全句去重，保证成品干净、不重复刷屏。
+
+    1. **全句去重**：任何归一化后完全相同的句子只保留第一次出现，
+       剔除后续重复（成品里同一句反复出现是当前反馈的主要痛点）。
+    2. **不可动句必须保留**：不可动句若缺失则原样补回；已出现则不再重复补。
+    返回 (sentences, agents)。"""
+    if not sentences and not untouchable:
         return sentences, agents
-    out = list(sentences)
-    out_agents = list(agents)
-    # 成品里已有的文本（归一化后）
-    present = set(_normalize(s) for s in out)
+    out = []
+    out_agents = []
+    seen = set()            # 已出现过的句子（归一化）→ 全句去重
+    placed_unt = set()      # 已落地的不可动句（归一化）→ 不可动句去重
+    for s, ag in zip(sentences, agents):
+        norm = _normalize(s)
+        if not norm:
+            continue
+        if norm in seen:
+            continue  # 完全重复句 → 只保留第一次
+        # 判断该句是否是某个不可动句（归一化完全一致）
+        is_unt = False
+        for u in untouchable:
+            t = u.get("sentence", "")
+            if t and _normalize(t) and _normalize(t) == norm:
+                is_unt = True
+                break
+        if is_unt and norm in placed_unt:
+            continue  # 该不可动句已落地一次，剔除重复
+        if is_unt:
+            placed_unt.add(norm)
+        out.append(s)
+        out_agents.append(ag)
+        seen.add(norm)
+    # 缺失的不可动句补回（原样保留，且不去重冲突）
+    present = set(seen)
     for u in untouchable:
         target = u.get("sentence", "")
         if not target:
             continue
         norm_t = _normalize(target)
-        if norm_t and norm_t not in present:
+        if norm_t and norm_t not in present and norm_t not in placed_unt:
             out.append(target)
             out_agents.append("")
             present.add(norm_t)
