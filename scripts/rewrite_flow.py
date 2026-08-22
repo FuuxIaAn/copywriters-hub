@@ -158,11 +158,11 @@ def _analysis_prompt(original: str, metrics: dict, requirements: str, extra: str
 
 
 def _part_prompt(agent, region_label: str, region_desc: str, original: str, skeleton: str,
-                 untouchable: list, analyses_text: str, requirements: str, char_budget: int = 180) -> str:
+                 untouchable: list, analyses_text: str, requirements: str, char_budget: int = 75) -> str:
     parts = [
         f"你是「{agent.name}」（{agent.title}）。在洗稿流程中，你负责补写【{region_label}】（{region_desc}）。",
         "",
-        f"请直接输出你负责的这一部分的文案（可用 1-3 个自然段，控制在 {char_budget} 字以内，直接可用的成品，不要解释过程）。",
+        f"请直接输出你负责的这一部分的文案。全文总字数控制在 550-600 字，你的这一部分约 {char_budget} 字（可用 1-2 个自然段，直接可用的成品，不要解释过程）。",
         "",
         "【硬性要求】",
         "1. 必须保留全部「不可动句子」（原句照抄，一字不改）；",
