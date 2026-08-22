@@ -466,7 +466,8 @@ def _weibo_fetch_videos(uid: str, cookie: str, count: int = 10) -> list:
                     "cover": (page_info.get("page_pic") or {}).get("url")
                     if isinstance(page_info.get("page_pic"), dict)
                     else page_info.get("page_pic") or "",
-                    "duration_ms": (media.get("duration") or 0),
+                    # 微博 media_info.duration 单位是「秒」，转成毫秒与抖音一致
+                    "duration_ms": int((media.get("duration") or 0) * 1000),
                     "digg_count": mblog.get("attitudes_count") or 0,
                     "comment_count": mblog.get("comments_count") or 0,
                     "play_count": (page_info.get("play_count") or 0),
