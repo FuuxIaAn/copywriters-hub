@@ -1121,11 +1121,13 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-s-line { position:relative; display:inline; padding:0; border-radius:0; cursor:text; }
 .rw-s-line:hover { text-decoration:underline; text-decoration-thickness:2px; text-decoration-color:var(--c-text-sub); text-underline-offset:4px; }
 .rw-s-line strong { font-weight:700; color:var(--c-text); background:linear-gradient(transparent 60%, rgba(255, 193, 7, .35) 60%); }
-.rw-s-line .rw-s-act { position:absolute; right:-24px; top:-4px; opacity:0; transition:opacity .12s; z-index:2; }
+.rw-s-line .rw-s-act { display:inline-block; margin-left:4px; opacity:0; transition:opacity .12s; z-index:2; vertical-align:baseline; }
 .rw-s-line:hover .rw-s-act { opacity:1; }
-.rw-s-line .rw-s-act button { font-size:11px; border-radius:6px; padding:2px 7px; border:1px solid var(--c-border); background:var(--c-card); color:var(--c-text-sub); cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.rw-s-line .rw-s-act button { font-size:11px; line-height:1; border-radius:10px; padding:2px 8px; border:1px solid var(--c-border); background:var(--c-card); color:var(--c-text-sub); cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.08); }
 .rw-s-line .rw-s-act button:hover { background:var(--primary-bg); color:var(--primary); border-color:var(--primary); }
 .rw-s-line.rw-s-pending { opacity:.7; background:rgba(255,193,7,.12); outline:1px dashed #f59e0b; outline-offset:1px; }
+.rw-s-line .rw-s-rewriting { display:inline-block; margin-left:6px; padding:1px 8px; font-size:11px; font-weight:600; color:#fff; background:#f59e0b; border-radius:10px; vertical-align:middle; animation:rwBlink 1s ease-in-out infinite; }
+@keyframes rwBlink { 0%,100%{opacity:1;} 50%{opacity:.55;} }
 .rw-hd-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
 .rw-hd-left { display:flex; align-items:center; gap:10px; min-width:0; }
 .rw-hd-summary { display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
@@ -4204,7 +4206,8 @@ async function loadSettings(){
       '<button class="btn-ghost" id="editCtx"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-edit"/></svg></span> 在线编辑</button></div>' +
     '<div class="set-row"><div><div class="lbl">API 集中设置</div><div class="desc">主 LLM（DeepSeek）、语音转文字（硅基流动）、配音（ModelScope）的密钥统一在顶部钥匙按钮里配置一次，全系统复用</div></div>' +
       '<button class="btn-ghost" id="openApiSettings"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-key"/></svg></span> 打开 API 设置</button></div>' +
-    '<div class="set-row"><div><div class="lbl">数据存放</div><div class="desc" style="word-break:break-all">统计、作品库、学习档案都保存在数据目录下，不会随程序更新丢失<br><code style="font-size:11px;color:var(--c-text-sub);background:var(--c-bg-soft);padding:2px 6px;border-radius:4px;display:inline-block;margin-top:4px">' + esc(dataPath) + '</code></div></div></div>' +
+    '<div class="set-row"><div><div class="lbl">数据存放</div><div class="desc" style="word-break:break-all">统计、作品库、学习档案都保存在数据目录下，不会随程序更新丢失<br><code style="font-size:11px;color:var(--c-text-sub);background:var(--c-bg-soft);padding:2px 6px;border-radius:4px;display:inline-block;margin-top:4px">' + esc(dataPath) + '</code></div></div>' +
+      '<button class="btn-ghost" id="moveDataDir"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-edit"/></svg></span> 迁移到其他盘</button></div>' +
     '<div class="set-row"><div><div class="lbl">通知中心</div><div class="desc">采纳、复盘、留存分析、洗稿保存等关键事件都会在这里提醒，未读红点显示在右上角铃铛</div></div>' +
       '<button class="btn-ghost" id="clearNotify">清空通知</button></div>' +
     '<div class="set-row"><div><div class="lbl">快捷操作</div><div class="desc">群聊输入框支持 Ctrl+Enter 发送；采纳后 6 秒内可撤销；作品库支持勾选批量归档</div></div></div>' +
@@ -4224,6 +4227,31 @@ async function loadSettings(){
     const r = await post('/api/notifications/clear');
     if (r.ok){ showToast('已清空通知'); loadNotifications(); } else showToast('⚠ '+(r.error||'清空失败'));
   });
+  const mdd = $('moveDataDir');
+  if (mdd) mdd.addEventListener('click', moveDataDir);
+}
+// 数据目录迁移：把数据从 C 盘移到其他盘（如 E 盘），避免占用系统盘/桌面
+async function moveDataDir(){
+  // 读取当前数据目录占用
+  let cur = '';
+  let curSize = '';
+  try {
+    const info = await fetch('/api/settings/data_dir').then(r=>r.json());
+    if (info.ok){ cur = info.data_dir; curSize = '（当前占用约 ' + (info.size_mb||0) + 'MB）'; }
+  } catch(_){}
+  const f = await openModal({
+    title: '📁 迁移数据到其他盘',
+    sub: '把统计、作品库、学习档案、配音等所有数据从 C 盘迁到目标目录，彻底解决「占 C 盘 / 桌面」问题。\n当前：' + cur + ' ' + curSize + '\n\n迁移后需重启软件生效，原 C 盘数据可手动删除。',
+    fields: [{ name:'data_dir', label:'目标目录（如 E:\\靓仔文案工作台数据）', type:'text', placeholder:'E:\\靓仔文案工作台数据' }],
+    okText: '迁移并写入配置'
+  });
+  if (!f || !f.data_dir || !f.data_dir.trim()) return;
+  const r = await post('/api/settings/data_dir', { data_dir: f.data_dir.trim() });
+  if (r.ok) {
+    showToast('✅ ' + (r.message || '迁移成功'));
+  } else {
+    showToast('⚠ ' + (r.error || '迁移失败'));
+  }
 }
 async function editContext(){
   let c = {};
@@ -8775,6 +8803,11 @@ async function openRewrite(rid, quiet){
   rwCurrent = rid;
   rwRenderedSeqs.clear();
   if (rwEs) { try { rwEs.close(); } catch(_){} rwEs = null; }
+  // 保障 rwMeta 已加载：从通知/记录直接跳进来时可能还没加载过 meta（regions 依赖它）。
+  // 若缺失则先拉取，避免详情页 regions 为空导致渲染不全/空白。
+  if (!rwMeta) {
+    try { rwMeta = await fetch('/api/rewrite/meta').then(r => r.json()).catch(() => null); } catch(_) { rwMeta = null; }
+  }
   const d = await fetch('/api/rewrite/' + rid).then(r=>r.json());
   if (!d.ok) { showToast('⚠ ' + (d.error || '加载失败')); return; }
   const s = d.session;
@@ -8889,11 +8922,12 @@ function rwDetailHtml(s){
       (isLegacy
         ? '<div class="rw-legacy-note">⚠ 这篇是<b>旧版流程</b>产生的草稿，内容为分区草稿的拼接（可能带专家过程说明、偏长）。建议用新版完整流程<b>重新洗稿</b>得到干净的连续成品：<button class="btn-primary" style="margin-left:8px;padding:4px 12px" onclick="rwRedo(\'' + s.id + '\')">🔄 重新洗稿</button></div>'
         : '') +
-      (nextGuide || '') +
       (sentCount > 0
         ? '<div class="rw-doc-bar"><span class="rw-doc-title">📝 洗稿成品</span><span class="rw-doc-count" style="' + charColor + '">共 ' + sentCount + ' 句' + charTip + ' · 整篇连续文章，hover 句子可评论让该专家重写</span></div>'
         : '') +
       '<div id="rwFullText" class="rw-fulltext">' + fullTextHtml + '</div>' +
+      // 「下一步」引导放到文章末尾（而不是顶部），读完全文后自然看到该怎么操作
+      (nextGuide || '') +
     '</div>';
 }
 
@@ -8924,10 +8958,31 @@ function rwStripPrefix(s){
   return t;
 }
 
+// 归一化（去空白），用于句子比对
+function rwNorm(s){ return String(s == null ? '' : s).replace(/[\s\u3000]+/g, ''); }
+
+// 判断某成品句是否「不可动句」——从精确匹配放宽到包含/前缀匹配：
+// 当前句与任一不可动句的归一化文本存在足够长的重叠（一方包含另一方，且重叠字数≥2）
+// 即视为该不可动句已体现在当前句里 → 前端加粗标识，让老板一眼看出哪句不可动。
+function rwIsUntouchable(sentence, untouchable){
+  if (!sentence || !untouchable || !untouchable.length) return false;
+  const t = rwNorm(sentence);
+  if (!t) return false;
+  for (const u of untouchable) {
+    const s = (u && u.sentence ? u.sentence : '');
+    const n = rwNorm(s);
+    if (!n) continue;
+    if (t === n) return true;                                   // 完全一致
+    if (n.length >= 2 && t.indexOf(n) >= 0) return true;        // 句含不可动句
+    if (t.length >= 2 && n.indexOf(t) >= 0) return true;        // 不可动句含句（短句被包）
+  }
+  return false;
+}
+
 // 全文流：优先渲染 final（连续文章，每句按作者颜色），无 final 时回退把各分区剥前缀后拼成连续段落
 function rwFullTextHtml(rid, regions, parts, untouchable){
   let html = '';
-  const untSet = new Set((untouchable || []).map(u => (u && u.sentence ? u.sentence : '').replace(/[\s\u3000]+/g, '')));
+  const unt = untouchable || [];
   const lines = [];
   // 优先使用整体节奏负责人拼装后的最终成品（final 分区）
   const final = (parts && parts['final']);
@@ -8938,8 +8993,7 @@ function rwFullTextHtml(rid, regions, parts, untouchable){
       if (s === null || s === undefined || (typeof s !== 'string' && typeof s !== 'number')) continue;
       const str = String(s).trim();
       if (!str) continue;
-      const norm = str.replace(/[\s\u3000]+/g, '');
-      const isUnt = untSet.has(norm);
+      const isUnt = rwIsUntouchable(str, unt);
       const safe = esc(str);
       const inner = isUnt ? '<strong>' + safe + '</strong>' : safe;
       const agent = agents[i] || final.agent || '';
@@ -8964,8 +9018,7 @@ function rwFullTextHtml(rid, regions, parts, untouchable){
         // 旧数据句子常带作者前缀，剥掉只留正文
         const clean = rwStripPrefix(s);
         if (!clean) continue;
-        const norm = clean.replace(/[\s\u3000]+/g, '');
-        const isUnt = untSet.has(norm);
+        const isUnt = rwIsUntouchable(clean, unt);
         const safe = esc(clean);
         const inner = isUnt ? '<strong>' + safe + '</strong>' : safe;
         lines.push('<span class="rw-s-line" id="rws-' + rid + '-' + r.id + '-' + i + '" data-region="' + esc(r.id) + '" data-idx="' + i + '" data-txt="' + safe + '" style="color:' + color + '">' + inner + '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'' + esc(r.id) + '\',' + i + ')">💬</button></span></span>');
@@ -9161,13 +9214,27 @@ async function rwSentenceComment(rid, regionId, idx){
       sid: rwSid, region: regionId, sentence: sentence, comment: f.comment.trim()
     });
     if (!d.ok) { showToast('⚠ ' + (d.error || '评论失败')); return; }
-    // 就地标记这一句为「重写中」——不往句子里塞块，保持文章连续排版
+    // 明确标记「这句正在重写」：加高亮类 + 句内插入醒目的「重写中」徽标，
+    // 并滚动到该句，让老板一眼看到正在重写的是哪一句。
     el.classList.add('rw-s-pending');
+    const badge = document.createElement('span');
+    badge.className = 'rw-s-rewriting';
+    badge.textContent = '🔄 重写中…';
+    el.appendChild(badge);
+    if (el.scrollIntoView) { try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch(_){} }
     showToast('💬 已发送，该分区专家正在按你的评论重写这句…');
     connectRwStream(rwSid);
   } finally {
-    // 兜底：90 秒后解除 busy（SSE is_iteration 到达时会提前解除）
-    setTimeout(() => { rwBusy = false; }, 90000);
+    // 兜底：90 秒后解除 busy（SSE is_iteration 到达时会提前解除），并清理残留的重写徽标
+    setTimeout(() => {
+      rwBusy = false;
+      const el2 = document.getElementById('rws-' + rid + '-' + regionId + '-' + idx);
+      if (el2) {
+        el2.classList.remove('rw-s-pending');
+        const b = el2.querySelector('.rw-s-rewriting');
+        if (b) b.remove();
+      }
+    }, 90000);
   }
 }
 
@@ -9208,9 +9275,8 @@ function rwSentenceUpdate(ev){
   }
   if (!target) { showToast('已重写，但找不到对应句子，请刷新查看'); return; }
   // 重建该句 innerHTML：保留评论按钮；如果新句是某个不可动句，加 strong
-  const untSet = new Set(((rwSessionCache && rwSessionCache.untouchable) || []).map(u => (u && u.sentence ? u.sentence : '').replace(/[\s\u3000]+/g, '')));
-  const newNorm = newTxt.replace(/[\s\u3000]+/g, '');
-  const isUnt = untSet.has(newNorm);
+  const unt = ((rwSessionCache && rwSessionCache.untouchable) || []);
+  const isUnt = rwIsUntouchable(newTxt, unt);
   const safe = esc(newTxt);
   const inner = isUnt ? '<strong>' + safe + '</strong>' : safe;
   // 保留原有的 comment 按钮

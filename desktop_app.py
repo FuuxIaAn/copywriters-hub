@@ -30,10 +30,31 @@ def _pick_data_dir() -> str:
 
     打包后不再写到 exe 所在目录（避免污染桌面），统一放到
     %APPDATA%\\靓仔文案工作台\\，桌面只保留单个 exe。
+
+    优先级：
+      1) 环境变量 WB_DATA_DIR 强制指定（测试 / 一次性覆盖）
+      2) 持久化配置（data_dir.txt）——老板可把数据目录改到 E 盘等非 C 盘位置，
+         避免占用系统盘 / 桌面；配置文件放在固定的 %LOCALAPPDATA%\\靓仔文案工作台\\，
+         不随数据目录迁移，避免循环引用。
+      3) 默认：打包 -> %APPDATA%，开发 -> %LOCALAPPDATA%
     """
     env = os.environ.get("WB_DATA_DIR")
     if env:
         return env
+    # 持久化配置：老板在「设置」里改过数据目录后，这里读到并生效
+    try:
+        local_cfg = os.path.join(
+            os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+            "靓仔文案工作台",
+            "data_dir.txt",
+        )
+        if os.path.isfile(local_cfg):
+            with open(local_cfg, "r", encoding="utf-8") as f:
+                custom = f.read().strip()
+            if custom and os.path.isdir(custom):
+                return custom
+    except Exception:  # noqa: BLE001
+        pass
     if getattr(sys, "frozen", False):  # PyInstaller 打包后
         appdata = os.environ.get("APPDATA") or os.path.expanduser("~")
         return os.path.join(appdata, "靓仔文案工作台")
@@ -46,6 +67,30 @@ def _pick_data_dir() -> str:
         or os.path.expanduser("~")
     )
     return os.path.join(local_appdata, "靓仔文案工作台")
+
+
+def _write_custom_data_dir(path: str) -> bool:
+    """把自定义数据目录写入持久化配置（供「设置」界面调用）。"""
+    try:
+        local_cfg = os.path.join(
+            os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+            "靓仔文案工作台",
+        )
+        os.makedirs(local_cfg, exist_ok=True)
+        with open(os.path.join(local_cfg, "data_dir.txt"), "w", encoding="utf-8") as f:
+            f.write(path)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _data_dir_config_path() -> str:
+    """持久化配置文件的固定路径（不随数据目录迁移）。"""
+    return os.path.join(
+        os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+        "靓仔文案工作台",
+        "data_dir.txt",
+    )
 
 
 # 必须在 import server 之前设置，server 模块顶层读取

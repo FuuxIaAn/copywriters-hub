@@ -230,15 +230,44 @@ def _local_index_tts_ready() -> bool:
             and os.path.isfile(os.path.join(root, "model", "config.yaml")))
 
 
+def _gpu_busy_threshold() -> float:
+    """auto 模式下「GPU 是否忙到会导致卡顿」的显存占用阈值（百分比）。
+    当本地显存已用 > 此阈值，认为本地推理会明显卡顿 → 自动走外部。"""
+    return float(os.environ.get("WB_TTS_GPU_BUSY", "70"))
+
+
+def _local_backend_ok(output_dir: str) -> bool:
+    """auto 模式下判断是否真的适合走本地推理：
+    1) 本地 IndexTTS 必须就绪；
+    2) 若 GPU 显存已被占满（>阈值），本地推理会明显卡顿 → 判定不适合，改走外部。
+    返回 True 表示用本地，False 表示应走外部（modelscope）。"""
+    if not _local_index_tts_ready():
+        return False
+    # GPU 占用检测：本地推理需要 ~5GB 显存，若剩余太少会卡顿
+    try:
+        gpu = _gpu_info()
+        if gpu.get("ok") and gpu.get("vram_gb") and gpu.get("vram_free_gb") is not None:
+            used_pct = (1 - gpu["vram_free_gb"] / gpu["vram_gb"]) * 100
+            busy = _gpu_busy_threshold()
+            # 本地推理需约 5GB；若剩余 < 1.5GB 或占用 > 阈值 → 会卡，走外部
+            if used_pct > busy or gpu["vram_free_gb"] < 1.5:
+                print(f"[tts] auto 检测到 GPU 占用高（已用 {used_pct:.0f}%，剩余 {gpu['vram_free_gb']:.1f}GB），"
+                      f"为避免卡顿改走外部在线推理")
+                return False
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
 def _resolve_backend(output_dir: str) -> str:
-    """解析最终生效的推理后端。auto 模式下：本地就绪 → local，否则 → modelscope。
+    """解析最终生效的推理后端。auto 模式下：本地就绪且 GPU 不忙 → local，否则 → modelscope。
     优先级：环境变量 WB_TTS_BACKEND > settings.backend（auto 视为 auto）。"""
     env = os.environ.get("WB_TTS_BACKEND", "").strip()
     backend = env or _load_backend(output_dir)
     if backend in ("local", "modelscope"):
         return backend
-    # auto：本地就绪则本地，否则在线
-    return "local" if _local_index_tts_ready() else "modelscope"
+    # auto：本地就绪且 GPU 空闲才本地，否则在线
+    return "local" if _local_backend_ok(output_dir) else "modelscope"
 
 
 def _synthesize_with_retry(output_dir: str, ref_path: str, text: str, params: dict,
@@ -386,13 +415,20 @@ def _synthesize_local_index_tts(output_dir: str, ref_path: str, text: str, param
             "本地 IndexTTS 未就绪。请先在 E:\\indextts 完成安装（IndexTTS 独立环境 + 下载模型）。\n"
             f"当前显卡：{gpu_txt}"
         )
-    # 参数序列化到临时 json，避免命令行长度/编码问题
+    # 参数序列化到临时 json，避免命令行长度/编码问题。
+    # 全部对齐在线模式 _build_args 的音频规则（emo_text 情绪、40 分词、采样参数），
+    # 使本地推理与在线 ModelScope 产出一致，规则全部内置到本地。
     payload = {
         "ref_path": ref_path,
         "text": text,
         "lang": params.get("lang", "ZH"),
         "speed_factor": float(params.get("duration_factor", 1.0)),
         "model_dir": model,
+        "emo_text": params.get("emo_text", "") or "",
+        "use_emo_text": bool(params.get("use_emo_text", False)),
+        "max_text_tokens_per_segment": MAX_TEXT_TOKENS_PER_SEGMENT,  # 40，防断句不自然
+        "top_p": 0.9, "top_k": 30, "temperature": 0.5,  # 音色还原优先
+        "interval_silence": 200,
     }
     payload_path = os.path.join(_dir(output_dir, "audio"), f"local_task_{uuid.uuid4().hex[:8]}.json")
     with open(payload_path, "w", encoding="utf-8") as f:
@@ -947,6 +983,8 @@ def start_generate(output_dir: str, payload: dict) -> dict:
         "duration_factor": duration_factor,
         "emo_random": bool(payload.get("emo_random", False)),
         "emo_text": emo_text,
+        # 本地推理：仅当拿到情感描述时才启用 Qwen 情绪模型（否则用文本自身当情绪参考反而耗时/多余）
+        "use_emo_text": bool(emo_text),
     }
 
     # 并行模型：每个请求一个独立 task_id，不抢占、不取消已有任务
@@ -1213,6 +1251,7 @@ def start_batch(output_dir: str, payload: dict) -> dict:
             "duration_factor": min(2.0, max(0.5, float(payload.get("duration_factor", 1.0)))),
             "emo_random": bool(payload.get("emo_random", False)),
             "emo_text": str(payload.get("emo_text") or "").strip(),
+            "use_emo_text": bool(str(payload.get("emo_text") or "").strip()),
         }
 
         msgs = [{"id": m.get("id", _uid(m.get("text", "")[:16])), "text": (m.get("text") or "").strip()}

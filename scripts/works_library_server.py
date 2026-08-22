@@ -628,7 +628,9 @@ def _extract_one_video_weibo(video: dict, api_config: dict, output_dir: str = ""
     """微博视频条目提取文案 + 区分发言人 + 经历画像。
 
     微博主页接口返回的视频列表里已带 video_url（stream_url/mp4），无需二次抓详情。
-    逻辑：desc 正文作标题，若正文过短则下载视频抽音轨 ASR 转录口播。
+    逻辑：desc 正文作标题；**无论 desc 长短都尝试下载视频抽音轨 ASR 转录口播**，
+    因为微博短视频的口播才是文案主体（desc 往往只是标题/话题标签，不是说话内容）。
+    口播 ASR 成功 → 用「口播 + desc」作完整文案；ASR 失败/无视频直链 → 回退到 desc。
     返回 (text, segments, visitor_profile, error_reason)。
     """
     import asr_server
@@ -640,36 +642,40 @@ def _extract_one_video_weibo(video: dict, api_config: dict, output_dir: str = ""
         return "", [], None, "无视频ID"
 
     desc = (video.get("desc") or "").strip()
+    video_url = video.get("video_url") or ""
     text = desc
     wav_path = ""
     fail_reason = ""
 
-    # 正文过短 → ASR 兜底转录口播（保留 wav 供音频辅助区分发言人）
-    if len(text) < 5:
-        video_url = video.get("video_url") or ""
-        if not video_url:
-            return "", [], None, "无正文、无视频直链"
+    # 尝试下载视频 + ASR 转录口播（微博口播是文案主体，desc 只是标题）
+    if video_url:
         api_key = asr_server._load_key(output_dir) if output_dir else ""
         if not api_key:
-            return "", [], None, "无正文、ASR Key 未配置"
-        video_path, size, dl_err = asr_server._download_video(output_dir or ".", [video_url], mid)
-        if dl_err:
-            print(f"[workslib] 微博 ASR 下载失败 {mid}: {dl_err}")
-            return "", [], None, f"ASR 下载失败: {dl_err}"
-        wav_path, ex_err = asr_server._extract_audio(video_path)
-        try:
-            os.remove(video_path)
-        except OSError:
-            pass
-        if ex_err:
-            print(f"[workslib] 微博 ASR 抽音轨失败 {mid}: {ex_err}")
-            return "", [], None, f"ASR 抽音轨失败: {ex_err}"
-        text, asr_err = asr_server._call_asr(api_key, wav_path)
-        if asr_err or not text or len(text) < 5:
-            print(f"[workslib] 微博 ASR 转写失败 {mid}: {asr_err or '结果为空'}")
-            try: os.remove(wav_path)
-            except OSError: pass
-            return "", [], None, f"ASR 转写失败: {asr_err or '结果为空'}"
+            fail_reason = "ASR Key 未配置，仅用标题"
+        else:
+            video_path, size, dl_err = asr_server._download_video(output_dir or ".", [video_url], mid)
+            if dl_err:
+                print(f"[workslib] 微博 ASR 下载失败 {mid}: {dl_err}")
+                fail_reason = fail_reason or f"ASR 下载失败: {dl_err}"
+            else:
+                wav_path, ex_err = asr_server._extract_audio(video_path)
+                try:
+                    os.remove(video_path)
+                except OSError:
+                    pass
+                if ex_err:
+                    print(f"[workslib] 微博 ASR 抽音轨失败 {mid}: {ex_err}")
+                    fail_reason = fail_reason or f"ASR 抽音轨失败: {ex_err}"
+                else:
+                    asr_text, asr_err = asr_server._call_asr(api_key, wav_path)
+                    if asr_err or not asr_text or len(asr_text) < 5:
+                        print(f"[workslib] 微博 ASR 转写失败 {mid}: {asr_err or '结果为空'}")
+                        fail_reason = fail_reason or f"ASR 转写失败: {asr_err or '结果为空'}"
+                    else:
+                        # 口播 + 标题合并：口播为主体，标题补在后面（含话题标签）
+                        text = asr_text.strip()
+                        if desc and desc not in text:
+                            text = text + "\n" + desc
 
     if len(text) < 5:
         if wav_path:

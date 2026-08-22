@@ -1288,7 +1288,9 @@ def _detect_speakers(text: str, api_config: dict, cues: list | None = None,
             if (segments_audio and len(segments_audio) >= len(segments)
                     and (len({x.get("speaker", "A") for x in segments_audio}) > 1
                          or not _looks_like_dialogue([x.get("text", "") for x in segments_audio]))):
-                return segments_audio
+                # 音频路线被采纳时同样要合并相邻同发言人，避免同一说话人连续多句被拆成多个气泡
+                segments = _merge_consecutive_speakers(segments_audio)
+                return segments
             print("[extract] 音频辅助仍为单一发言人，保留文本路线的对话兜底")
         else:
             print(f"[extract] 文本路线不合格（段数={len(segments)}），但无音频文件可降级")

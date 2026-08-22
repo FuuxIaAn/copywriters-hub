@@ -4249,6 +4249,92 @@ def api_settings_all():
     return jsonify(api_settings_server.get_all_settings(OUTPUT_DIR))
 
 
+@app.route("/api/settings/data_dir", methods=["GET"])
+def api_settings_data_dir_get():
+    """返回当前数据目录信息（路径 + 是否自定义 + 占用）。"""
+    import shutil as _shutil
+    try:
+        size_bytes = 0
+        for root, _dirs, files in os.walk(DATA_DIR):
+            for fn in files:
+                try:
+                    size_bytes += os.path.getsize(os.path.join(root, fn))
+                except OSError:
+                    pass
+    except Exception:  # noqa: BLE001
+        size_bytes = 0
+    return jsonify({
+        "ok": True,
+        "data_dir": DATA_DIR,
+        "output_dir": OUTPUT_DIR,
+        "size_mb": round(size_bytes / 1048576, 1),
+    })
+
+
+@app.route("/api/settings/data_dir", methods=["POST"])
+def api_settings_data_dir_set():
+    """把数据目录改到指定位置（如 E 盘），并把当前数据迁移过去。
+    返回后需重启软件生效（下次启动会读取持久化配置）。"""
+    import shutil as _shutil
+    data = request.get_json(force=True, silent=True) or {}
+    target = (data.get("data_dir") or "").strip()
+    if not target:
+        return jsonify({"ok": False, "error": "请填写数据目录路径"})
+    target = os.path.abspath(target)
+    # 安全校验：目标不能是 C 盘根/当前数据目录本身
+    if os.path.normcase(target).lower() == os.path.normcase(DATA_DIR).lower():
+        return jsonify({"ok": False, "error": "目标目录与当前数据目录相同，无需迁移"})
+    target_drive = os.path.splitdrive(target)[0].lower()
+    if not target_drive:
+        return jsonify({"ok": False, "error": "请填写完整路径，如 E:\\靓仔文案工作台数据"})
+    try:
+        os.makedirs(target, exist_ok=True)
+    except OSError as e:
+        return jsonify({"ok": False, "error": f"无法创建目标目录：{e}"})
+    # 迁移：把当前 output 等内容复制到目标目录（若目标已有同内容则跳过）
+    try:
+        src = OUTPUT_DIR
+        dst = os.path.join(target, "output")
+        if os.path.isdir(src):
+            os.makedirs(dst, exist_ok=True)
+            migrated = 0
+            for name in os.listdir(src):
+                s = os.path.join(src, name)
+                d = os.path.join(dst, name)
+                if not os.path.exists(d):
+                    if os.path.isdir(s):
+                        _shutil.copytree(s, d)
+                    else:
+                        _shutil.copy2(s, d)
+                    migrated += 1
+        # 持久化配置（desktop_app 下次启动读取）
+        if not _write_custom_data_dir(target):
+            return jsonify({"ok": False, "error": "迁移数据完成，但写入持久化配置失败"})
+        return jsonify({
+            "ok": True,
+            "data_dir": target,
+            "migrated_items": migrated,
+            "message": f"数据已迁移到 {target}，请重启软件生效。重启后原 %APPDATA% 数据可手动删除。",
+        })
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ok": False, "error": f"迁移失败：{e}"})
+
+
+def _write_custom_data_dir(path: str) -> bool:
+    """把自定义数据目录写入固定位置的持久化配置（%LOCALAPPDATA%\\靓仔文案工作台\\data_dir.txt）。"""
+    try:
+        cfg_dir = os.path.join(
+            os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+            "靓仔文案工作台",
+        )
+        os.makedirs(cfg_dir, exist_ok=True)
+        with open(os.path.join(cfg_dir, "data_dir.txt"), "w", encoding="utf-8") as f:
+            f.write(path)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 @app.route("/api/settings/llm", methods=["POST"])
 def api_settings_llm_save():
     data = request.get_json(force=True, silent=True) or {}
