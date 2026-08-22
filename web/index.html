@@ -1116,13 +1116,33 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-msg .ts { font-size:10px; color:var(--c-text-mute); margin-left:auto; }
 .rw-typing { color:var(--c-text-mute); font-size:12px; padding:4px 2px; }
 .rw-parts { display:flex; flex-direction:column; gap:12px; margin-top:14px; }
+.rw-fulltext { display:flex; flex-direction:column; gap:6px; margin-top:14px; padding:14px 16px; background:var(--c-card); border:1px solid var(--c-border); border-radius:12px; }
+.rw-section-hd { font-size:11px; color:var(--c-text-mute); padding:8px 2px 4px 2px; border-bottom:1px dashed var(--c-border); margin-bottom:4px; display:flex; gap:8px; align-items:center; }
+.rw-section-hd:first-child { padding-top:2px; }
+.rw-section-tag { font-size:10px; color:#fff; border-radius:999px; padding:1px 7px; font-weight:500; }
 .rw-part { border:1px solid var(--c-border); border-radius:10px; padding:10px 12px; background:var(--c-card); }
 .rw-part .h { display:flex; align-items:center; gap:8px; font-weight:600; font-size:13px; margin-bottom:6px; }
 .rw-part .owner { font-size:11px; color:#fff; background:var(--primary); border-radius:999px; padding:1px 8px; font-weight:400; }
 .rw-part .txt { font-size:12.5px; line-height:1.8; white-space:pre-wrap; background:var(--c-bg-soft); border-radius:8px; padding:8px 10px; max-height:200px; overflow-y:auto; }
 .rw-part .acts { margin-top:8px; display:flex; gap:8px; }
 .rw-part .cmt { font-size:12px; color:var(--c-text-sub); background:var(--c-bg-soft); border-radius:6px; padding:6px 10px; margin-top:6px; }
-/* 逐句成品流：每句用作者颜色做底色 + 作者标签，hover 出评论按钮 */
+/* 全文流中的逐句卡片 */
+.rw-fulltext .rw-sentence { display:flex; gap:8px; align-items:flex-start; border-radius:9px; padding:8px 10px; border:1px solid transparent; position:relative; transition:box-shadow .15s; }
+.rw-fulltext .rw-sentence:hover { box-shadow:0 1px 5px rgba(0,0,0,.10); border-color:var(--c-border); }
+.rw-fulltext .rw-s-untouchable { border:1px dashed #b45309 !important; background:#fff8eb !important; }
+.rw-fulltext .rw-s-untouchable:hover { background:#fff4e0 !important; }
+.rw-s-unt-icon { flex:none; font-size:12px; margin-top:2px; opacity:.85; }
+.rw-fulltext .rw-s-tag { flex:none; font-size:10.5px; color:#fff; font-weight:600; border-radius:6px; padding:2px 8px; margin-top:1px; letter-spacing:.5px; min-width:36px; text-align:center; }
+.rw-fulltext .rw-s-txt { flex:1; font-size:13.5px; line-height:1.8; white-space:pre-wrap; color:var(--c-text); }
+.rw-fulltext .rw-s-act { flex:none; opacity:0; transition:opacity .15s; }
+.rw-fulltext .rw-sentence:hover .rw-s-act { opacity:1; }
+.rw-fulltext .rw-s-act button { font-size:11px; border-radius:6px; padding:3px 9px; border:1px solid var(--c-border); background:var(--c-card); color:var(--c-text-sub); cursor:pointer; }
+.rw-fulltext .rw-s-act button:hover { background:var(--primary-bg); color:var(--primary); border-color:var(--primary); }
+.rw-fulltext .rw-sentence.rw-s-pending { opacity:.6; }
+.rw-fulltext .rw-s-reply { font-size:11.5px; color:var(--c-text-sub); background:var(--c-bg-soft); border-radius:6px; padding:4px 8px; margin-top:2px; }
+.rw-fulltext .rw-s-reply.pending { color:#ff9500; }
+.rw-fulltext .rw-s-reply .who { font-weight:600; color:var(--primary); }
+/* 旧版式（保留兼容） */
 .rw-flow { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
 .rw-flow-empty { font-size:12.5px; color:var(--c-text-mute); background:var(--c-bg-soft); border-radius:8px; padding:10px 12px; white-space:pre-wrap; }
 .rw-sentence { display:flex; gap:8px; align-items:flex-start; border-radius:9px; padding:8px 10px; border:1px solid transparent; position:relative; transition:box-shadow .15s; }
@@ -1134,7 +1154,6 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-sentence .rw-s-act button { font-size:11px; border-radius:6px; padding:3px 9px; border:1px solid var(--c-border); background:var(--c-card); color:var(--c-text-sub); cursor:pointer; }
 .rw-sentence .rw-s-act button:hover { background:var(--primary-bg); color:var(--primary); border-color:var(--primary); }
 .rw-sentence.rw-s-pending { opacity:.6; }
-/* 句级评论的等待/回复态 */
 .rw-s-reply { font-size:11.5px; color:var(--c-text-sub); background:var(--c-bg-soft); border-radius:6px; padding:4px 8px; margin-top:2px; }
 .rw-s-reply.pending { color:#ff9500; }
 .rw-s-reply .who { font-weight:600; color:var(--primary); }
@@ -8163,6 +8182,7 @@ try{
 }catch(_){}
 /* ================= 洗稿工坊 ================= */
 let rwSessions = [], rwMeta = null, rwCurrent = null, rwEs = null, rwSid = null, rwBusy = false, rwPrefillOriginal = '', rwPrefillMetrics = null, rwFilter = { q:'', status:'', sort:'new' };
+let rwSessionCache = null;   // 当前打开的洗稿 session 缓存（用于 SSE 局部刷新全文流）
 const rwRenderedSeqs = new Set();
 const RW_STATUS = { running:'进行中', review:'待定稿', iterating:'迭代中', done:'已完成' };
 
@@ -8715,6 +8735,7 @@ async function openRewrite(rid, quiet){
   if (!d.ok) { showToast('⚠ ' + (d.error || '加载失败')); return; }
   const s = d.session;
   if (d.sid) rwSid = d.sid;
+  rwSessionCache = s;   // 缓存，供 SSE 事件局部刷新全文流使用
   const detail = $('rwDetail');
   if (!detail) return;
   detail.innerHTML = rwDetailHtml(s);
@@ -8773,10 +8794,13 @@ function rwSplitSentences(text){
 
 function rwDetailHtml(s){
   const regions = (rwMeta && rwMeta.regions) || [];
-  let partsHtml = regions.map(r => rwPartCardHtml(s.id, r, (s.parts || {})[r.id])).join('');
+  const untouchable = s.untouchable || [];
+  const parts = s.parts || {};
+  // 全文流：按 regions 顺序把所有句子拼成一篇连续文章
+  const fullTextHtml = rwFullTextHtml(s.id, regions, parts, untouchable);
 
-  const unt = (s.untouchable || []).map(u =>
-    '<li>「' + esc(u.sentence) + '」<span class="muted">（' + (u.agents || []).length + '人共识' + (u.reason ? ' · ' + esc(u.reason) : '') + '）</span></li>'
+  const unt = untouchable.map(u =>
+    '<li>「' + esc(u.sentence) + '」<span class="muted">（' + (u.agents || []).length + '人共识）</span></li>'
   ).join('');
 
   return '<div class="card-title">✂️ ' + esc(s.title) + ' ' + rwStatusBadge(s.status) +
@@ -8795,7 +8819,7 @@ function rwDetailHtml(s){
     '</div>' +
     '<div id="rwProgress" class="rw-progress"></div>' +
     '<div class="card-title" style="margin-top:16px">✍️ 洗稿成品（每句标注作者，可逐句评论）</div>' +
-    '<div class="rw-parts">' + partsHtml + '</div>' +
+    '<div class="rw-fulltext">' + fullTextHtml + '</div>' +
     '<div class="rw-insight panel" style="margin-top:14px">' +
       '<div class="rw-insight-hd" onclick="this.parentElement.classList.toggle(\'open\');this.querySelector(\'.chev\').classList.toggle(\'open\')">' +
         '<span class="chev">▶</span> 🔍 专家分析与审查记录（骨架 / 全员分析 / 审查 / 分工）</div>' +
@@ -8803,6 +8827,41 @@ function rwDetailHtml(s){
         (unt ? '<div class="rw-untouch"><div class="t">🚫 不可动句子（全员共识）</div><ul>' + unt + '</ul></div>' : '') +
       '</div>' +
     '</div>';
+}
+
+// 全文流：按 regions 顺序把所有句子拼成一篇连续文章，每句标注作者+颜色，不可动句加锁
+function rwFullTextHtml(rid, regions, parts, untouchable){
+  let seq = 0;
+  let html = '';
+  const untSet = new Set((untouchable || []).map(u => (u.sentence || '').replace(/[\s\u3000]+/g, '')));
+  for (const r of regions) {
+    const p = parts[r.id] || {};
+    const agent = p.agent || '';
+    const sentences = p.sentences && p.sentences.length
+      ? p.sentences
+      : (rwSplitSentences(p.text || '') || []);
+    if (!sentences.length) continue;
+    const tagColor = agent ? colorOf(agent) : '#94A3B8';
+    // 分区小标题（弱化）
+    html += '<div class="rw-section-hd">' + esc(r.label) + (agent ? '<span class="rw-section-tag" style="background:' + tagColor + '">' + esc(agent) + '</span>' : '') + '</div>';
+    for (let i = 0; i < sentences.length; i++) {
+      const s = sentences[i];
+      const safe = esc(s);
+      const norm = s.replace(/[\s\u3000]+/g, '');
+      const isUnt = untSet.has(norm);
+      const untCls = isUnt ? ' rw-s-untouchable' : '';
+      const untIcon = isUnt ? '<span class="rw-s-unt-icon" title="不可动句子（全员共识）">🔒</span>' : '';
+      html += '<div class="rw-sentence' + untCls + '" id="rws-' + rid + '-' + r.id + '-' + i + '" data-region="' + esc(r.id) + '" data-idx="' + i + '" data-txt="' + safe + '" style="background:' + tagColor + '1f;border-left:3px solid ' + tagColor + '">' +
+        '<span class="rw-s-tag" style="background:' + tagColor + '">' + esc(agent || '') + '</span>' +
+        '<span class="rw-s-txt">' + safe + '</span>' +
+        untIcon +
+        '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'' + esc(r.id) + '\',' + i + ')">💬 评论</button></span>' +
+      '</div>';
+      seq++;
+    }
+  }
+  if (!html) return '<div class="rw-flow-empty">（暂无成品内容）</div>';
+  return html;
 }
 
 function renderRwHistory(s){
@@ -8910,38 +8969,23 @@ function rwHandle(ev){
 }
 
 function upsertRwPart(ev){
-  // 分区成品消息 → 动态更新/创建分区卡片（不重建整个详情，避免 SSE 断流）
-  const regions = (rwMeta && rwMeta.regions) || [];
-  const region = regions.find(x => x.id === ev.region);
-  let card = $('rwpart-' + ev.region);
-  if (card) {
-    const h = card.querySelector('.h');
-    if (h) {
-      const owner = h.querySelector('.owner');
-      if (owner) owner.textContent = ev.name || owner.textContent;
-    }
-    // 重建该分区的句子流（整段 text 重新切句）
-    const flowWrap = card.querySelector('.rw-flow');
-    const agent = ev.name || (card.querySelector('.owner') && card.querySelector('.owner').textContent) || '';
-    const sentHtml = rwSentenceFlowHtml(rwCurrent, region, { text: ev.text, agent: agent }, agent);
-    if (flowWrap) flowWrap.outerHTML = sentHtml;
-    else {
-      const ins = document.createElement('div');
-      ins.innerHTML = sentHtml;
-      card.insertBefore(ins.firstChild, card.querySelector('.cmt') || null);
-    }
-  const cmts = card.querySelectorAll('.cmt');
-  // 保留历史评论，只去掉「等待回复」的占位标记（专家已重写完成）
-  cmts.forEach(c => c.classList.remove('pending'));
-  scrollBottomRw();
-  return;
-}
-  // 卡片不存在 → 创建并插入分区区
-  const wrap = document.querySelector('.rw-parts');
-  if (!wrap || !region || !rwCurrent) return;
-  const div = document.createElement('div');
-  div.innerHTML = rwPartCardHtml(rwCurrent, region, { text: ev.text, agent: ev.name || '', comments: [], is_new: !!ev.is_new });
-  wrap.appendChild(div.firstChild);
+  // 分区成品消息（实时流程中）→ 更新 rwSessionCache 并重建全文流
+  if (!rwSessionCache || !ev.region) return;
+  const parts = rwSessionCache.parts || (rwSessionCache.parts = {});
+  const old = parts[ev.region] || {};
+  const agent = ev.name || old.agent || '';
+  parts[ev.region] = {
+    agent: agent,
+    text: ev.text || old.text || '',
+    sentences: rwSplitSentences(ev.text || old.text || ''),
+    comments: old.comments || [],
+  };
+  // 重建全文流容器
+  const full = document.querySelector('.rw-fulltext');
+  if (full) {
+    full.innerHTML = rwFullTextHtml(rwCurrent, (rwMeta && rwMeta.regions) || [], parts, rwSessionCache.untouchable || []);
+  }
+  if (ev.is_iteration) rwBusy = false;   // 迭代完成解除 busy
   scrollBottomRw();
 }
 
@@ -9018,24 +9062,36 @@ function rwSentenceUpdate(ev){
   const oldTxt = ev.sentence || '';
   const newTxt = ev.text || '';
   if (!regionId || !oldTxt || !newTxt) return;
-  // 找到该分区的句子流容器
-  const flow = document.querySelector('.rw-flow[data-flow="' + regionId + '"]');
-  if (!flow) return;
+  // 更新 rwSessionCache 中的对应句（保持缓存与 DOM 一致）
+  if (rwSessionCache && rwSessionCache.parts && rwSessionCache.parts[regionId]) {
+    const p = rwSessionCache.parts[regionId];
+    const sents = p.sentences || rwSplitSentences(p.text || '');
+    for (let i = 0; i < sents.length; i++) {
+      const norm = sents[i].replace(/[\s\u3000]+/g, '');
+      const oldNorm = oldTxt.replace(/[\s\u3000]+/g, '');
+      if (norm === oldNorm || norm.slice(0, 12) === oldNorm.slice(0, 12)) {
+        sents[i] = newTxt;
+        break;
+      }
+    }
+    p.sentences = sents;
+    p.text = sents.join('\n\n');
+  }
+  // 在全文流里定位该句并就地更新
+  const full = document.querySelector('.rw-fulltext');
+  if (!full) return;
   let target = null;
-  // 1) 精确匹配 data-txt
-  flow.querySelectorAll('.rw-sentence').forEach(s => {
+  full.querySelectorAll('.rw-sentence').forEach(s => {
     if (s.getAttribute('data-txt') === oldTxt) target = s;
   });
-  // 2) 退化：按句序（后端 update_sentence 用前缀匹配，可能落在别处；这里再兜底按内容前 12 字匹配）
   if (!target) {
-    const head = oldTxt.replace(/\s/g, '').slice(0, 12);
-    flow.querySelectorAll('.rw-sentence').forEach(s => {
-      const t = (s.getAttribute('data-txt') || '').replace(/\s/g, '').slice(0, 12);
+    const head = oldTxt.replace(/[\s\u3000]+/g, '').slice(0, 12);
+    full.querySelectorAll('.rw-sentence').forEach(s => {
+      const t = (s.getAttribute('data-txt') || '').replace(/[\s\u3000]+/g, '').slice(0, 12);
       if (head && t === head) target = s;
     });
   }
   if (!target) { showToast('已重写，但找不到对应句子，请刷新查看'); return; }
-  // 更新文案 + 恢复样式
   const txtEl = target.querySelector('.rw-s-txt');
   if (txtEl) txtEl.textContent = newTxt;
   target.setAttribute('data-txt', newTxt);
