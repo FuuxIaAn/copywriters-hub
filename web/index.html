@@ -1121,8 +1121,9 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-s-line { position:relative; display:inline; padding:0; border-radius:0; cursor:text; }
 .rw-s-line:hover { text-decoration:underline; text-decoration-thickness:2px; text-decoration-color:var(--c-text-sub); text-underline-offset:4px; }
 .rw-s-line strong { font-weight:700; color:var(--c-text); background:linear-gradient(transparent 60%, rgba(255, 193, 7, .35) 60%); }
-.rw-s-line .rw-s-act { display:inline-block; margin-left:4px; opacity:0; transition:opacity .12s; z-index:2; vertical-align:baseline; }
-.rw-s-line:hover .rw-s-act { opacity:1; }
+/* 评论按钮悬浮在句子右侧垂直中间，不进入文字流，避免把相邻句子/文字隔开 */
+.rw-s-line .rw-s-act { position:absolute; right:-30px; top:50%; transform:translateY(-50%); opacity:0; transition:opacity .12s; z-index:2; pointer-events:none; }
+.rw-s-line:hover .rw-s-act { opacity:1; pointer-events:auto; }
 .rw-s-line .rw-s-act button { font-size:11px; line-height:1; border-radius:10px; padding:2px 8px; border:1px solid var(--c-border); background:var(--c-card); color:var(--c-text-sub); cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.08); }
 .rw-s-line .rw-s-act button:hover { background:var(--primary-bg); color:var(--primary); border-color:var(--primary); }
 .rw-s-line.rw-s-pending { opacity:.7; background:rgba(255,193,7,.12); outline:1px dashed #f59e0b; outline-offset:1px; }
