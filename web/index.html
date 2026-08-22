@@ -1116,7 +1116,7 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-msg .ts { font-size:10px; color:var(--c-text-mute); margin-left:auto; }
 .rw-typing { color:var(--c-text-mute); font-size:12px; padding:4px 2px; }
 .rw-parts { display:flex; flex-direction:column; gap:12px; margin-top:14px; }
-.rw-fulltext { display:flex; flex-direction:column; gap:6px; margin-top:14px; padding:14px 16px; background:var(--c-card); border:1px solid var(--c-border); border-radius:12px; }
+.rw-fulltext { display:flex; flex-direction:column; gap:6px; margin-top:14px; padding:14px 16px; background:var(--c-card); border:1px solid var(--c-border); border-radius:12px; min-height:120px; }
 .rw-section-hd { font-size:11px; color:var(--c-text-mute); padding:8px 2px 4px 2px; border-bottom:1px dashed var(--c-border); margin-bottom:4px; display:flex; gap:8px; align-items:center; }
 .rw-section-hd:first-child { padding-top:2px; }
 .rw-section-tag { font-size:10px; color:#fff; border-radius:999px; padding:1px 7px; font-weight:500; }
@@ -8748,6 +8748,13 @@ async function openRewrite(rid, quiet){
     return;
   }
   detail.innerHTML = html;
+  // 自动滚动到成品全文区域（确保老板一眼看到全文，而不是停在顶部按钮/进度）
+  const ft = $('rwFullText');
+  if (ft) {
+    requestAnimationFrame(() => {
+      try { ft.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(_) {}
+    });
+  }
   if (s.status === 'running' && rwSid) {
     // 有进行中的流程：连接 SSE（重放历史 + 实时接收）
     connectRwStream(rwSid);
@@ -8812,6 +8819,15 @@ function rwDetailHtml(s){
     '<li>「' + esc(u.sentence) + '」<span class="muted">（' + (u.agents || []).length + '人共识）</span></li>'
   ).join('');
 
+  const sentCount = (() => {
+    let n = 0;
+    for (const r of regions) {
+      const p = parts[r.id] || {};
+      n += (p.sentences && p.sentences.length) || 0;
+    }
+    return n;
+  })();
+
   return '<div class="card-title">✂️ ' + esc(s.title) + ' ' + rwStatusBadge(s.status) +
       '<span class="muted" style="margin-left:auto">' + esc(s.created_at || '') + '</span></div>' +
     '<div class="muted">原稿</div><div class="rw-orig">' + esc(s.original || '') + '</div>' +
@@ -8827,8 +8843,10 @@ function rwDetailHtml(s){
       '<button class="btn-ghost" onclick="copyFullText(\'' + s.id + '\')">📋 复制成品全文</button>' +
     '</div>' +
     '<div id="rwProgress" class="rw-progress"></div>' +
-    '<div class="card-title" style="margin-top:16px">✍️ 洗稿成品（每句标注作者，可逐句评论）</div>' +
-    '<div class="rw-fulltext">' + fullTextHtml + '</div>' +
+    '<div class="card-title" style="margin-top:16px">✍️ 洗稿成品（每句标注作者，可逐句评论）' +
+      (sentCount > 0 ? '<span class="muted" style="margin-left:10px;font-weight:400;font-size:12px">共 ' + sentCount + ' 句</span>' : '') +
+    '</div>' +
+    '<div id="rwFullText" class="rw-fulltext">' + fullTextHtml + '</div>' +
     '<div class="rw-insight panel" style="margin-top:14px">' +
       '<div class="rw-insight-hd" onclick="this.parentElement.classList.toggle(\'open\');this.querySelector(\'.chev\').classList.toggle(\'open\')">' +
         '<span class="chev">▶</span> 🔍 专家分析与审查记录（骨架 / 全员分析 / 审查 / 分工）</div>' +
