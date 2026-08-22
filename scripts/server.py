@@ -3367,11 +3367,95 @@ def api_rewrite_meta():
     })
 
 
+def _strip_author_prefix(s: str) -> str:
+    """剥掉旧数据里专家回复自带的作者前缀（「XX：」「【整体节奏】」等），返回干净句子。
+    若整句是专家的过程性/指令性话语（如「收到，按骨架…」「交给评论区去吵」「我来…」），返回空串丢弃。"""
+    t = (s or "").strip()
+    # 纯分隔符（---、*** 等）直接丢弃
+    if re.fullmatch(r"[—\-*＿=~·\.\s]+", t):
+        return ""
+    # 剥掉整段开头的「【某某】」独占行前缀
+    t = re.sub(r"^【[^】]+】\s*", "", t).strip()
+    # 剥掉句首「作者名：」前缀（中文冒号或英文冒号，后接正文）
+    t = re.sub(r"^[^\s，。！？！；]{1,6}[:：]\s*", "", t).strip()
+    if not t:
+        return ""
+    # 过滤明显的过程性/指令性句子（旧数据的专家自言自语）
+    _PROC = (
+        "收到", "我来", "我负责", "我这边", "已收到", "好的", "好嘞", "嗯，", "明白",
+        "按骨架", "按第", "这一part", "这一部分", "这部分", "交给评论区", "我只负责",
+        "先给你", "我来写", "我先把", "我的思路", "这里我", "这part",
+    )
+    head = t[:6]
+    if any(k in head for k in _PROC):
+        return ""
+    return t
+
+
+def _backfill_final_from_parts(output_dir, entry: dict) -> dict:
+    """旧数据兼容：若洗稿存档没有 final 分区（老流程跑的），则按 regions 顺序把各分区
+    内容现场拼成一个 final 分区（剥作者前缀、逐句切分、记录每句作者），供前端以「连续文章」渲染。
+    因旧流程 8 个分区常各自完整成稿、内容互相重复，拼接时做跨分区归一化去重，避免成品变成堆砌。
+    返回（可能是新 dict 的）entry。"""
+    parts = entry.get("parts") or {}
+    if not parts:
+        return entry
+    if parts.get("final") and parts["final"].get("sentences"):
+        return entry  # 已有 final，无需兜底
+    try:
+        regions = rewrite_store.get_regions(output_dir)
+    except Exception:  # noqa: BLE001
+        regions = []
+    if not regions:
+        return entry
+    assignments = {}
+    try:
+        assignments = rewrite_store.get_assignments(output_dir) or {}
+    except Exception:  # noqa: BLE001
+        assignments = {}
+    sents, agents = [], []
+    seen = set()  # 归一化后句子，用于跨分区去重
+    for r in regions:
+        rid = r["id"]
+        if rid == "final":
+            continue
+        part = parts.get(rid) or {}
+        s_list = part.get("sentences")
+        if not s_list:
+            s_list = rewrite_store.split_sentences(part.get("text", ""))
+        agent = part.get("agent") or assignments.get(rid) or r.get("default") or ""
+        for s in s_list:
+            if not s or not str(s).strip():
+                continue
+            clean = _strip_author_prefix(str(s))
+            if not clean:
+                continue
+            norm = re.sub(r"[\s\u3000]+", "", clean)
+            if not norm or norm in seen:
+                continue  # 跳过与前面分区重复的句子
+            seen.add(norm)
+            sents.append(clean)
+            agents.append(agent)
+    # 只要拼出了内容，就补一个 final
+    if sents:
+        parts["final"] = {
+            "agent": "",
+            "text": "\n\n".join(sents),
+            "sentences": sents,
+            "agents": agents,
+            "comments": [],
+            "backfilled": True,   # 标记为后端兼容生成的成品
+        }
+    return entry
+
+
 @app.route("/api/rewrite/<rid>")
 def api_rewrite_get(rid):
     entry = rewrite_store.get_session(OUTPUT_DIR, rid)
     if not entry:
         return jsonify({"ok": False, "error": "洗稿记录不存在"}), 404
+    # 旧数据兜底：无 final 时现场拼一个连续文章成品，保证旧会话也能以连续文章展示
+    _backfill_final_from_parts(OUTPUT_DIR, entry)
     sess = _get_rw_session(rid)
     return jsonify({"ok": True, "session": entry, "sid": sess.sid if sess else ""})
 

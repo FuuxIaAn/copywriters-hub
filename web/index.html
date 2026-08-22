@@ -1137,6 +1137,7 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-doc-bar { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--c-border); background:var(--c-bg-soft); flex:none; }
 .rw-doc-title { font-size:14px; font-weight:700; }
 .rw-doc-count { font-size:11px; color:var(--c-text-mute); }
+.rw-legacy-note { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:9px 16px; border-bottom:1px solid var(--c-border); background:rgba(245,158,11,.10); color:#92400e; font-size:12px; line-height:1.5; flex:none; }
 .rw-misc { margin-top:14px; }
 .rw-section-hd { font-size:11px; color:var(--c-text-mute); padding:8px 2px 4px 2px; border-bottom:1px dashed var(--c-border); margin-bottom:4px; display:flex; gap:8px; align-items:center; }
 .rw-section-hd:first-child { padding-top:2px; }
@@ -8762,6 +8763,9 @@ function rwDetailHtml(s){
   const regions = (rwMeta && rwMeta.regions) || [];
   const untouchable = s.untouchable || [];
   const parts = s.parts || {};
+  // 兼容旧流程：无 final 或 final 是后端兜底生成的 → 顶部给「重新洗稿」引导
+  const backfilled = !!(parts['final'] && parts['final'].backfilled);
+  const isLegacy = !parts['final'] || backfilled;
   // 全文流：按 regions 顺序把所有句子拼成一篇连续文章
   const fullTextHtml = rwFullTextHtml(s.id, regions, parts, untouchable);
 
@@ -8822,6 +8826,9 @@ function rwDetailHtml(s){
     '</div>' +
     // 主区域：成品全文铺满整页
     '<div class="rw-doc-wrap">' +
+      (isLegacy
+        ? '<div class="rw-legacy-note">⚠ 这篇是<b>旧版流程</b>产生的草稿，内容为分区草稿的拼接（可能带专家过程说明、偏长）。建议用新版完整流程<b>重新洗稿</b>得到干净的连续成品：<button class="btn-primary" style="margin-left:8px;padding:4px 12px" onclick="rwRedo(\'' + s.id + '\')">🔄 重新洗稿</button></div>'
+        : '') +
       (sentCount > 0
         ? '<div class="rw-doc-bar"><span class="rw-doc-title">📝 洗稿成品</span><span class="rw-doc-count" style="' + charColor + '">共 ' + sentCount + ' 句' + charTip + ' · 整篇连续文章，hover 句子可评论让该专家重写</span></div>'
         : '') +
@@ -8838,7 +8845,25 @@ function toggleRwHd(btn){
   btn.textContent = open ? '▾ 详情' : '▴ 收起';
 }
 
-// 全文流：按 regions 顺序把所有句子拼成一篇连续文章段落，每句用作者颜色区分，不可动句加粗
+// 剥掉旧数据里专家自带的作者前缀（「XX：」「【整体节奏】」等），返回干净句子。
+// 整句是专家的过程性/指令性话语时返回空串丢弃。
+function rwStripPrefix(s){
+  if (!s) return '';
+  let t = String(s).trim();
+  if (/^[—\-*＿=~·\.\s]+$/.test(t)) return '';   // 纯分隔符丢弃
+  // 剥掉整段开头的「【某某】」独占行前缀
+  t = t.replace(/^【[^】]+】\s*/, '').trim();
+  // 剥掉句首「作者名：」前缀
+  t = t.replace(/^[^\s，。！？！；]{1,6}[:：]\s*/, '').trim();
+  if (!t) return '';
+  // 过滤明显的过程性/指令性句子
+  const head = t.slice(0, 6);
+  const PROC = ['收到','我来','我负责','我这边','已收到','好的','好嘞','明白','按骨架','按第','这一part','这一部分','这部分','交给评论区','我只负责','先给你','我来写','我先把','我的思路','这里我','这part'];
+  for (const k of PROC) if (head.indexOf(k) >= 0) return '';
+  return t;
+}
+
+// 全文流：优先渲染 final（连续文章，每句按作者颜色），无 final 时回退把各分区剥前缀后拼成连续段落
 function rwFullTextHtml(rid, regions, parts, untouchable){
   let html = '';
   const untSet = new Set((untouchable || []).map(u => (u && u.sentence ? u.sentence : '').replace(/[\s\u3000]+/g, '')));
@@ -8858,11 +8883,10 @@ function rwFullTextHtml(rid, regions, parts, untouchable){
       const inner = isUnt ? '<strong>' + safe + '</strong>' : safe;
       const agent = agents[i] || final.agent || '';
       const color = agent ? colorOf(agent) : '#94A3B8';
-      // final 分区评论暂映射到 final 本身（后续可按句子内容路由到原始分区）
       lines.push('<span class="rw-s-line" id="rws-' + rid + '-final-' + i + '" data-region="final" data-idx="' + i + '" data-txt="' + safe + '" style="color:' + color + '">' + inner + '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'final\',' + i + ')">💬</button></span></span>');
     }
   }
-  // 没有 final 时回退到按 regions 顺序拼（兼容旧数据）
+  // 没有 final 时回退到按 regions 顺序拼（兼容旧数据）：剥作者前缀，全部连成一篇连续文章
   if (!lines.length) {
     for (const r of regions || []) {
       if (!r) continue;
@@ -8876,11 +8900,12 @@ function rwFullTextHtml(rid, regions, parts, untouchable){
       for (let i = 0; i < sentences.length; i++) {
         const s = sentences[i];
         if (s === null || s === undefined || (typeof s !== 'string' && typeof s !== 'number')) continue;
-        const str = String(s).trim();
-        if (!str) continue;
-        const norm = str.replace(/[\s\u3000]+/g, '');
+        // 旧数据句子常带作者前缀，剥掉只留正文
+        const clean = rwStripPrefix(s);
+        if (!clean) continue;
+        const norm = clean.replace(/[\s\u3000]+/g, '');
         const isUnt = untSet.has(norm);
-        const safe = esc(str);
+        const safe = esc(clean);
         const inner = isUnt ? '<strong>' + safe + '</strong>' : safe;
         lines.push('<span class="rw-s-line" id="rws-' + rid + '-' + r.id + '-' + i + '" data-region="' + esc(r.id) + '" data-idx="' + i + '" data-txt="' + safe + '" style="color:' + color + '">' + inner + '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'' + esc(r.id) + '\',' + i + ')">💬</button></span></span>');
       }
