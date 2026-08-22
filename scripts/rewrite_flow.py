@@ -191,6 +191,47 @@ def _part_prompt(agent, region_label: str, region_desc: str, original: str, skel
     return "\n".join(parts)
 
 
+def _point_prompt(agent, region_label: str, region_desc: str, original: str, skeleton: str,
+                  untouchable: list, analyses_text: str, requirements: str,
+                  char_budget: int = 60) -> str:
+    """针对「爆点/争议点/共鸣点/情绪点」这类「点」的专家：必须明确该点嵌入到
+    开头/中间/结尾的哪一块、替换或优化哪一句。只给定位+句子，不给理由。"""
+    parts = [
+        f"你是「{agent.name}」（{agent.title}）。在洗稿流程中，你负责【{region_label}】（{region_desc}）。",
+        "",
+        "你的职责不是单独写一段，而是：**从开头/中间/结尾三大块中，找到最合适的位置，用你的专业手法写出这个点，并明确它嵌入的位置（替换哪一块的哪一句）。**",
+        "",
+        f"输出约 {char_budget} 字。必须给出嵌入定位，格式如下：",
+        "",
+        "【嵌入位置】在【开头段落 / 中间段落 / 结尾段落】的【第几句】附近（例如：中间段落第3句之后）",
+        "【优化句】你为这个点写的句子（只写句子本身，不带作者前缀）",
+        "",
+        "【硬性要求】",
+        "1. 必须保留全部「不可动句子」（原句照抄，一字不改），你的优化句不能改动它们；",
+        "2. 你的点要服务于全篇节奏，落在开头/中间/结尾最合适的位置；",
+        "3. 只输出【嵌入位置】和【优化句】两个标记，不要解释理由、不要写分析过程。",
+    ]
+    if requirements:
+        parts.append(f"4. 满足用户洗稿要求：{requirements}")
+    parts += [
+        "",
+        "【原稿】",
+        original[:4000],
+        "",
+        "【骨架】",
+        (skeleton or "")[:3000],
+        "",
+        "【不可动句子（必须原样保留，你的优化句绝不能改动它们）】",
+        "\n".join(f"- {u['sentence']}" for u in untouchable) or "（无共识不可动句）",
+        "",
+        "【其他专家的分析参考】",
+        (analyses_text or "")[:2500],
+        "",
+        f"现在输出【{region_label}】的嵌入定位与优化句：",
+    ]
+    return "\n".join(parts)
+
+
 def _pace_prompt(agent, regions, untouchable, original, skeleton_text):
     """整体节奏负责人（当前担任「整体节奏」分区的专家，动态，不写死）制定各分区篇幅配比。
     只返回分配结果（JSON），不给理由/过程。总字数 550-700。"""
@@ -233,6 +274,98 @@ def _parse_pace(reply: str, regions, fallback: int = 80) -> dict:
     # 回退：平均分配
     total = len(regions) * fallback
     return {r["id"]: fallback for r in regions}
+
+
+def _assemble_prompt(agent, original: str, skeleton_text: str, untouchable: list,
+                     containers: dict, points: dict, requirements: str) -> str:
+    """整体节奏负责人（动态）把主体三段和四个点拼装成一篇连续文章。
+    输出格式：每句以「【作者名】句子内容」开头，方便前端按颜色区分；总字数 550-700。
+    不可动句子必须逐字保留。"""
+    def _section(name, text):
+        if not text:
+            return f"【{name}】（未提供）\n"
+        return f"【{name}】\n{text}\n\n"
+
+    parts_text = ""
+    parts_text += _section("开头段落（小黄负责）", containers.get("opening", ""))
+    parts_text += _section("中间段落（老周负责）", containers.get("middle", ""))
+    parts_text += _section("结尾段落（阿骨负责）", containers.get("ending", ""))
+    # 四个点带嵌入定位
+    parts_text += _section("爆点/炸点（阿爆负责，含嵌入定位）", points.get("bang", ""))
+    parts_text += _section("争议点（阿证负责，含嵌入定位）", points.get("controversy", ""))
+    parts_text += _section("共鸣点（阿沁负责，含嵌入定位）", points.get("resonance", ""))
+    parts_text += _section("情绪点（阿导负责，含嵌入定位）", points.get("emotion", ""))
+
+    unt_text = "\n".join(f"- 「{u['sentence']}」" for u in untouchable) or "（无）"
+
+    return (
+        f"你是「{agent.name}」（{agent.title}），是这篇口播稿的终审编辑。\n\n"
+        "请把下面 7 位专家写好的内容，重新组合成一篇**完整、连续、可直接口播**的成品。\n"
+        "要求：\n"
+        "1. 开头/中间/结尾三大块必须完整；\n"
+        "2. 四个点（爆点/争议/共鸣/情绪）按其标注的【嵌入位置】**精准嵌入**到对应段落（替换/优化那一句），不要单独列在最后；\n"
+        "3. **不可动句子必须一字不改地保留在成品中**（见【不可动句子】清单），任何专家都不得改动它们，拼装时原样放回；\n"
+        "4. 全文总字数控制在 550-700 字；\n"
+        "5. 每句话前面必须标注作者名，格式「【作者名】句子内容」（例如「【小黄】都说癸水人聪明...」），方便前端按颜色区分；\n"
+        "6. 只输出最终成品，不要解释你为什么这样安排、不要写理由。\n\n"
+        f"【原稿】\n{original[:2000]}\n\n"
+        f"【骨架】\n{(skeleton_text or '')[:1200]}\n\n"
+        f"【不可动句子（必须逐字保留）】\n{unt_text}\n\n"
+        + (f"【用户洗稿要求】{requirements}\n\n" if requirements else "")
+        + f"【待组合的各分区内容】\n{parts_text}"
+        "\n请直接输出最终拼装后的口播成品："
+    )
+
+
+def _parse_assemble(reply: str) -> tuple:
+    """解析整体节奏负责人拼装后的成品。
+    返回 (sentences, agent_per_sentence)。每句按「【作者名】句子」解析；解析不到作者时标记为''。"""
+    import re as _re
+    text = (reply or "").strip()
+    if not text:
+        return [], []
+    # 切分成句子
+    sents = rewrite_store.split_sentences(text)
+    result = []
+    agents = []
+    for s in sents:
+        # 严格匹配「【作者名】句子」
+        m = _re.match(r"^【(.+?)】\s*(.+)$", s.strip(), _re.S)
+        if m:
+            agent_name, content = m.group(1).strip(), m.group(2).strip()
+            result.append(content)
+            agents.append(agent_name)
+        else:
+            result.append(s.strip())
+            agents.append("")
+    return result, agents
+
+
+def _normalize(t: str) -> str:
+    """去掉空白，用于不可动句比对。"""
+    import re as _re
+    return _re.sub(r"[\s\u3000]+", "", t or "")
+
+
+def _enforce_untouchable(sentences: list, agents: list, untouchable: list) -> tuple:
+    """硬校验：确保所有不可动句子都原样出现在成品中。
+    若某个不可动句缺失，则把原句追加到末尾（保证不被改动丢失）。返回 (sentences, agents)。"""
+    if not untouchable:
+        return sentences, agents
+    out = list(sentences)
+    out_agents = list(agents)
+    # 成品里已有的文本（归一化后）
+    present = set(_normalize(s) for s in out)
+    for u in untouchable:
+        target = u.get("sentence", "")
+        if not target:
+            continue
+        norm_t = _normalize(target)
+        if norm_t and norm_t not in present:
+            out.append(target)
+            out_agents.append("")
+            present.add(norm_t)
+    return out, out_agents
 
 
 def _review_prompt(parts_text: str, principles: str, original: str) -> str:
@@ -418,14 +551,16 @@ def start_rewrite_flow(session, config, original: str, metrics: dict, requiremen
             if "原则" in line or "必须" in line or "建议" in line or "禁止" in line or "不要" in line:
                 add_principles(output_dir, [line], kind="suggest")
 
-        # ---------- 阶段 3：分区补写 ----------
-        push(type="system", text="✍️ 阶段3：专家分区补写（每位专家负责自己的区域）", kind="phase")
+        # ---------- 阶段 3：分区补写 + 整体节奏拼装 ----------
+        push(type="system", text="✍️ 阶段3：专家写稿 + 整体节奏拼装", kind="phase")
         regions = rewrite_store.get_regions(output_dir)
         assignments = rewrite_store.get_assignments(output_dir)
         analyses_text = "\n\n".join(f"### {x['agent']}\n{x['text'][:800]}" for x in analyses)
 
         # 阶段 2.5：整体节奏负责人（动态取「整体节奏」分区当前负责人，不写死）分配各分区字数
         budget = {}
+        pace_owner = ""
+        pace_agent = None
         pace_region = next((r for r in regions if r["id"] == "rhythm"), None)
         if pace_region:
             pace_owner = assignments.get("rhythm") or pace_region.get("default") or ""
@@ -439,25 +574,64 @@ def start_rewrite_flow(session, config, original: str, metrics: dict, requiremen
         if not budget:
             budget = {r["id"]: 80 for r in regions}
 
-        parts = {}
-        for r in regions:
+        # 3A+3B：主体三段用 _part_prompt，四个「点」用 _point_prompt（要求明确嵌入定位）
+        _POINT_IDS = ("bang", "controversy", "resonance", "emotion")
+        raw_parts = {}
+        content_regions = [r for r in regions if r["id"] != "rhythm"]
+        for r in content_regions:
             owner = assignments.get(r["id"], r["default"])
             a = next((x for x in agents if x.name == owner), None)
             if not a:
                 continue
-            push(type="typing", name=a.name, title=a.title)
-            reply = a.say([{"role": "user",
-                            "content": _part_prompt(a, r["label"], r["desc"], original, skeleton_text,
-                                                    untouchable, analyses_text, requirements,
-                                                    char_budget=budget.get(r["id"], 80))}])
-            parts[r["id"]] = {"agent": owner, "text": reply, "comments": [],
-                              "sentences": rewrite_store.split_sentences(reply)}
-            push(type="message", name=a.name, title=a.title, text=reply, kind="part", region=r["id"], region_label=r["label"])
+            if r["id"] in _POINT_IDS:
+                reply = a.say([{"role": "user",
+                                "content": _point_prompt(a, r["label"], r["desc"], original, skeleton_text,
+                                                         untouchable, analyses_text, requirements,
+                                                         char_budget=budget.get(r["id"], 60))}])
+            else:
+                reply = a.say([{"role": "user",
+                                "content": _part_prompt(a, r["label"], r["desc"], original, skeleton_text,
+                                                        untouchable, analyses_text, requirements,
+                                                        char_budget=budget.get(r["id"], 80))}])
+            raw_parts[r["id"]] = {"agent": owner, "text": reply, "comments": [],
+                                  "sentences": rewrite_store.split_sentences(reply)}
+
+        # 3C：整体节奏负责人把主体三段 + 四个点拼装成一篇连续文章
+        containers = {k: raw_parts[k].get("text", "") for k in ("opening", "middle", "ending") if k in raw_parts}
+        points = {k: raw_parts[k].get("text", "") for k in ("bang", "controversy", "resonance", "emotion") if k in raw_parts}
+        final_text = ""
+        final_sentences = []
+        final_agents = []
+        if pace_agent and containers:
+            push(type="typing", name=pace_agent.name, title=pace_agent.title)
+            assemble_reply = pace_agent.say([{"role": "user",
+                "content": _assemble_prompt(pace_agent, original, skeleton_text, untouchable,
+                                            containers, points, requirements)}])
+            final_sentences, final_agents = _parse_assemble(assemble_reply)
+            # 硬校验：不可动句子必须原样保留，缺失则补回
+            final_sentences, final_agents = _enforce_untouchable(final_sentences, final_agents, untouchable)
+            final_text = "\n\n".join(final_sentences)
+
+        # 最终成品存为 final 分区；原始分区保留供后续迭代
+        parts = dict(raw_parts)
+        parts["final"] = {
+            "agent": pace_owner if pace_agent else "",
+            "text": final_text,
+            "sentences": final_sentences,
+            "agents": final_agents,
+            "comments": [],
+        }
         rewrite_store.update_session(output_dir, rid, lambda s: s.update({"parts": parts}))
+        # 只把最终成品推送给用户（不展示中间过程）
+        if final_text:
+            push(type="message", name=pace_agent.name if pace_agent else "整体节奏",
+                 title=pace_agent.title if pace_agent else "拼装",
+                 text=final_text, kind="part", region="final", region_label="成品全文",
+                 agents=final_agents, is_assemble=True)
 
         # ---------- 阶段 4：阿审审查（第一遍） ----------
         push(type="system", text="⚖️ 阶段4：阿审原则审查", kind="phase")
-        parts_text = _parts_to_text(parts, regions)
+        parts_text = final_text if final_text else _parts_to_text(parts, regions)
         principles = principles_text(output_dir, max_chars=3000)
         push(type="typing", name="阿审", title="原则审查员")
         reviewer = None

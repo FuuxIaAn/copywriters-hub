@@ -1116,7 +1116,7 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-msg .ts { font-size:10px; color:var(--c-text-mute); margin-left:auto; }
 .rw-typing { color:var(--c-text-mute); font-size:12px; padding:4px 2px; }
 .rw-parts { display:flex; flex-direction:column; gap:12px; margin-top:14px; }
-.rw-fulltext { margin-top:0; padding:18px 22px; background:var(--c-card); border:1px solid var(--c-border); border-radius:12px; min-height:120px; font-size:14.5px; line-height:1.95; color:var(--c-text); }
+.rw-fulltext { margin-top:0; padding:24px 28px; background:var(--c-card); border:1px solid var(--c-border); border-radius:12px; min-height:280px; flex:1; font-size:16px; line-height:2; color:var(--c-text); overflow-y:auto; }
 .rw-para { position:relative; margin:0; padding:0; }
 .rw-s-line { position:relative; display:inline; padding:0; border-radius:0; cursor:text; }
 .rw-s-line:hover { text-decoration:underline; text-decoration-thickness:2px; text-decoration-color:var(--c-text-sub); text-underline-offset:4px; }
@@ -1128,10 +1128,13 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-s-line.rw-s-pending { opacity:.7; background:rgba(255,193,7,.12); outline:1px dashed #f59e0b; outline-offset:1px; }
 .rw-hd-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
 .rw-hd-left { display:flex; align-items:center; gap:10px; min-width:0; }
-.rw-hd-title { font-size:16px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.rw-hd-time { margin-left:auto; font-size:11px; color:var(--c-text-mute); flex:none; }
-.rw-doc-wrap { background:var(--c-card); border:1px solid var(--c-border); border-radius:14px; box-shadow:0 1px 4px rgba(0,0,0,.05); overflow:hidden; }
-.rw-doc-bar { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--c-border); background:var(--c-bg-soft); }
+.rw-hd-summary { display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
+.rw-hd-summary .rw-hd-title { font-size:16px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; }
+.rw-hd-toggle { font-size:12px; padding:4px 10px; border-radius:8px; margin-left:auto; }
+.rw-hd-detail { background:var(--c-bg-soft); border:1px solid var(--c-border); border-radius:12px; padding:12px 14px; margin-bottom:12px; }
+.rw-hd-time { font-size:11px; color:var(--c-text-mute); flex:none; }
+.rw-doc-wrap { background:var(--c-card); border:1px solid var(--c-border); border-radius:14px; box-shadow:0 1px 4px rgba(0,0,0,.05); overflow:hidden; flex:1; display:flex; flex-direction:column; min-height:420px; }
+.rw-doc-bar { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--c-border); background:var(--c-bg-soft); flex:none; }
 .rw-doc-title { font-size:14px; font-weight:700; }
 .rw-doc-count { font-size:11px; color:var(--c-text-mute); }
 .rw-misc { margin-top:14px; }
@@ -8764,11 +8767,17 @@ function rwDetailHtml(s){
 
   const { sentCount, charCount } = (() => {
     let n = 0, c = 0, allText = '';
-    for (const r of regions) {
-      const p = parts[r.id] || {};
-      const sents = p.sentences && p.sentences.length ? p.sentences : (rwSplitSentences(p.text) || []);
-      n += sents.length;
-      for (const s of sents) { if (s) allText += String(s); }
+    const final = parts['final'];
+    if (final && final.sentences && final.sentences.length) {
+      n = final.sentences.length;
+      for (const s of final.sentences) { if (s) allText += String(s); }
+    } else {
+      for (const r of regions) {
+        const p = parts[r.id] || {};
+        const sents = p.sentences && p.sentences.length ? p.sentences : (rwSplitSentences(p.text) || []);
+        n += sents.length;
+        for (const s of sents) { if (s) allText += String(s); }
+      }
     }
     // 中文字符 + 英文/数字字符（去除空白）
     c = (allText.match(/[\u4e00-\u9fa5a-zA-Z0-9]/g) || []).length;
@@ -8796,24 +8805,37 @@ function rwDetailHtml(s){
     '<button class="btn-ghost" onclick="rwShowDiff(\'' + s.id + '\')">🔍 原稿vs成品</button>' +
     '</div>';
 
-  return '<div class="rw-hd-row">' +
-      '<div class="rw-hd-left">' +
-        '<span class="rw-hd-title">✂️ ' + esc(s.title) + '</span>' +
-        rwStatusBadge(s.status) +
-      '</div>' +
-      '<span class="rw-hd-time">' + esc(s.created_at || '') + '</span>' +
+  // 详情区默认折叠：只显示标题+状态+折叠按钮；展开后才显示进度、要求、操作
+  return '<div class="rw-hd-summary">' +
+      '<span class="rw-hd-title">✂️ ' + esc(s.title) + '</span>' +
+      rwStatusBadge(s.status) +
+      '<button class="btn-ghost rw-hd-toggle" onclick="toggleRwHd(this)" data-open="0">▾ 详情</button>' +
     '</div>' +
-    reqBar +
-    // 阶段进度（洗稿进行中时显示，review/done 时为空）
-    '<div id="rwProgress" class="rw-progress" style="margin:8px 0"></div>' +
-    // 主区域：成品全文直接顶上来（原句一行接一行，每句标注作者，hover 评论）
+    '<div class="rw-hd-detail" style="display:none">' +
+      '<div class="rw-hd-row">' +
+        '<span class="rw-hd-time">' + esc(s.created_at || '') + '</span>' +
+      '</div>' +
+      reqBar +
+      // 阶段进度（洗稿进行中时显示，review/done 时为空）
+      '<div id="rwProgress" class="rw-progress" style="margin:8px 0"></div>' +
+      actions +
+    '</div>' +
+    // 主区域：成品全文铺满整页
     '<div class="rw-doc-wrap">' +
       (sentCount > 0
         ? '<div class="rw-doc-bar"><span class="rw-doc-title">📝 洗稿成品</span><span class="rw-doc-count" style="' + charColor + '">共 ' + sentCount + ' 句' + charTip + ' · 整篇连续文章，hover 句子可评论让该专家重写</span></div>'
         : '') +
       '<div id="rwFullText" class="rw-fulltext">' + fullTextHtml + '</div>' +
-    '</div>' +
-    actions;
+    '</div>';
+}
+
+function toggleRwHd(btn){
+  const detail = btn && btn.parentNode && btn.parentNode.nextElementSibling;
+  if (!detail) return;
+  const open = btn.getAttribute('data-open') === '1';
+  detail.style.display = open ? 'none' : '';
+  btn.setAttribute('data-open', open ? '0' : '1');
+  btn.textContent = open ? '▾ 详情' : '▴ 收起';
 }
 
 // 全文流：按 regions 顺序把所有句子拼成一篇连续文章段落，每句用作者颜色区分，不可动句加粗
@@ -8821,17 +8843,12 @@ function rwFullTextHtml(rid, regions, parts, untouchable){
   let html = '';
   const untSet = new Set((untouchable || []).map(u => (u && u.sentence ? u.sentence : '').replace(/[\s\u3000]+/g, '')));
   const lines = [];
-  for (const r of regions || []) {
-    if (!r) continue;
-    const p = (parts && parts[r.id]) || {};
-    const agent = p.agent || '';
-    const sentences = p.sentences && p.sentences.length
-      ? p.sentences
-      : (rwSplitSentences(p.text) || []);
-    if (!sentences.length) continue;
-    const color = agent ? colorOf(agent) : '#94A3B8';
-    for (let i = 0; i < sentences.length; i++) {
-      const s = sentences[i];
+  // 优先使用整体节奏负责人拼装后的最终成品（final 分区）
+  const final = (parts && parts['final']);
+  if (final && final.sentences && final.sentences.length) {
+    const agents = final.agents || [];
+    for (let i = 0; i < final.sentences.length; i++) {
+      const s = final.sentences[i];
       if (s === null || s === undefined || (typeof s !== 'string' && typeof s !== 'number')) continue;
       const str = String(s).trim();
       if (!str) continue;
@@ -8839,29 +8856,42 @@ function rwFullTextHtml(rid, regions, parts, untouchable){
       const isUnt = untSet.has(norm);
       const safe = esc(str);
       const inner = isUnt ? '<strong>' + safe + '</strong>' : safe;
-      // 每句用作者颜色作文字色，hover 出评论按钮；整篇连续成一段
-      lines.push('<span class="rw-s-line" id="rws-' + rid + '-' + r.id + '-' + i + '" data-region="' + esc(r.id) + '" data-idx="' + i + '" data-txt="' + safe + '" style="color:' + color + '">' + inner + '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'' + esc(r.id) + '\',' + i + ')">💬</button></span></span>');
+      const agent = agents[i] || final.agent || '';
+      const color = agent ? colorOf(agent) : '#94A3B8';
+      // final 分区评论暂映射到 final 本身（后续可按句子内容路由到原始分区）
+      lines.push('<span class="rw-s-line" id="rws-' + rid + '-final-' + i + '" data-region="final" data-idx="' + i + '" data-txt="' + safe + '" style="color:' + color + '">' + inner + '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'final\',' + i + ')">💬</button></span></span>');
+    }
+  }
+  // 没有 final 时回退到按 regions 顺序拼（兼容旧数据）
+  if (!lines.length) {
+    for (const r of regions || []) {
+      if (!r) continue;
+      const p = (parts && parts[r.id]) || {};
+      const agent = p.agent || '';
+      const sentences = p.sentences && p.sentences.length
+        ? p.sentences
+        : (rwSplitSentences(p.text) || []);
+      if (!sentences.length) continue;
+      const color = agent ? colorOf(agent) : '#94A3B8';
+      for (let i = 0; i < sentences.length; i++) {
+        const s = sentences[i];
+        if (s === null || s === undefined || (typeof s !== 'string' && typeof s !== 'number')) continue;
+        const str = String(s).trim();
+        if (!str) continue;
+        const norm = str.replace(/[\s\u3000]+/g, '');
+        const isUnt = untSet.has(norm);
+        const safe = esc(str);
+        const inner = isUnt ? '<strong>' + safe + '</strong>' : safe;
+        lines.push('<span class="rw-s-line" id="rws-' + rid + '-' + r.id + '-' + i + '" data-region="' + esc(r.id) + '" data-idx="' + i + '" data-txt="' + safe + '" style="color:' + color + '">' + inner + '<span class="rw-s-act"><button onclick="rwSentenceComment(\'' + rid + '\',\'' + esc(r.id) + '\',' + i + ')">💬</button></span></span>');
+      }
     }
   }
   if (!lines.length) return '<div class="rw-flow-empty">（暂无成品内容）</div>';
   return '<p class="rw-para">' + lines.join('') + '</p>';
 }
 
-function renderRwHistory(s){
-  // 重放已存的分析/骨架/审查/记录为只读消息
-  const stream = $('rwStream');
-  if (!stream) return;
-  const regions = (rwMeta && rwMeta.regions) || [];
-  const parts = s.parts || {};
-  const done = new Set();
-  if (s.skeleton && !done.has('skeleton')) { done.add('skeleton'); appendRwMsg('skeleton', '阿骨', '骨架拆解', s.skeleton); }
-  for (const [name, text] of Object.entries(s.analysis || {})) {
-    if (done.has('analysis:' + name)) continue;
-    done.add('analysis:' + name);
-    appendRwMsg('analysis', name, '全员分析', text);
-  }
-  if (s.principle_review && !done.has('review')) { done.add('review'); appendRwMsg('review', '阿审', '原则审查', s.principle_review); }
-  if (s.owner_record && !done.has('record')) { done.add('record'); appendRwMsg('record', '阿数', '分工记录', s.owner_record); }
+function renderRwHistory(_s){
+  // 已废弃：详情页只展示成品全文，不再重放历史分析/骨架/审查/记录
 }
 
 function appendRwMsg(kind, name, tag, text){
