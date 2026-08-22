@@ -3059,9 +3059,9 @@ def api_works_batch():
         elif action == "restore":
             works_store.restore(OUTPUT_DIR, wid)
         elif action == "delete":
-            works_store.update_work(OUTPUT_DIR, wid, lambda x: x.update({"status": "archived"}))
+            works_store.delete(OUTPUT_DIR, wid)
         done += 1
-    notify_store.add(OUTPUT_DIR, "system", f"已批量{ {'archive':'归档','restore':'恢复','delete':'归档'}[action] } {done} 个作品",
+    notify_store.add(OUTPUT_DIR, "system", f"已批量{ {'archive':'归档','restore':'恢复','delete':'删除'}[action] } {done} 个作品",
                      f"操作：{action}，共 {done} 个。", {"view": "works"})
     return jsonify({"ok": True, "done": done, "missing": missing})
 
@@ -3080,6 +3080,15 @@ def api_work_restore(wid):
     if not w:
         return jsonify({"ok": False, "error": "作品不存在"}), 404
     return jsonify({"ok": True, "work": w})
+
+
+@app.route("/api/works/<wid>/delete", methods=["POST"])
+def api_work_delete(wid):
+    """硬删除作品（真删，不可恢复）。"""
+    removed = works_store.delete(OUTPUT_DIR, wid)
+    if not removed:
+        return jsonify({"ok": False, "error": "作品不存在或已删除"}), 404
+    return jsonify({"ok": True})
 
 
 @app.route("/api/overview")
@@ -3854,7 +3863,14 @@ def api_tts_settings():
 @app.route("/api/tts/settings", methods=["POST"])
 def api_tts_settings_save():
     data = request.get_json(force=True, silent=True) or {}
-    return jsonify(tts_server.save_settings(OUTPUT_DIR, data.get("token", "")))
+    return jsonify(tts_server.save_settings(OUTPUT_DIR, data.get("token", ""),
+                                            backend=data.get("backend", "")))
+
+
+@app.route("/api/system/gpu", methods=["GET"])
+def api_system_gpu():
+    """本机 GPU 信息（供设置页展示，判断是否可跑本地 IndexTTS）。"""
+    return jsonify({"ok": True, "gpu": tts_server._gpu_info()})
 
 
 @app.route("/api/tts/test", methods=["POST"])
@@ -4249,7 +4265,8 @@ def api_settings_asr_save():
 @app.route("/api/settings/tts", methods=["POST"])
 def api_settings_tts_save():
     data = request.get_json(force=True, silent=True) or {}
-    return jsonify(api_settings_server.save_tts_settings(OUTPUT_DIR, data.get("token", "")))
+    return jsonify(api_settings_server.save_tts_settings(
+        OUTPUT_DIR, data.get("token", ""), backend=data.get("backend", "")))
 
 
 @app.route("/api/settings/test", methods=["POST"])

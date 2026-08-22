@@ -1138,6 +1138,7 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-doc-title { font-size:14px; font-weight:700; }
 .rw-doc-count { font-size:11px; color:var(--c-text-mute); }
 .rw-legacy-note { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:9px 16px; border-bottom:1px solid var(--c-border); background:rgba(245,158,11,.10); color:#92400e; font-size:12px; line-height:1.5; flex:none; }
+.rw-guide { padding:10px 16px; border-bottom:1px solid var(--c-border); background:rgba(16,185,129,.08); color:#065f46; font-size:12px; line-height:1.6; flex:none; }
 .rw-misc { margin-top:14px; }
 .rw-section-hd { font-size:11px; color:var(--c-text-mute); padding:8px 2px 4px 2px; border-bottom:1px dashed var(--c-border); margin-bottom:4px; display:flex; gap:8px; align-items:center; }
 .rw-section-hd:first-child { padding-top:2px; }
@@ -3237,6 +3238,7 @@ function bindWorkCards(container){
     else if (act==='data'){ enterMetrics(wid); }
     else if (act==='archive'){ archiveWork(wid); }
     else if (act==='restore'){ restoreWork(wid); }
+    else if (act==='delete'){ deleteWork(wid); }
   }));
 }
 function workCard(w){
@@ -3250,7 +3252,8 @@ function workCard(w){
   const acts = '<button class="go" data-act="discuss" data-wid="'+w.id+'" title="恢复上次讨论现场">继续讨论</button>' +
     '<button data-act="rediscuss" data-wid="'+w.id+'" title="用当前作品初稿重新发起一轮完整讨论">重新讨论</button>' +
     (w.status!=='archived' ? '<button data-act="data" data-wid="'+w.id+'">录入数据</button><button data-act="archive" data-wid="'+w.id+'">归档</button>'
-                            : '<button data-act="restore" data-wid="'+w.id+'">恢复</button>');
+                            : '<button data-act="restore" data-wid="'+w.id+'">恢复</button>') +
+    '<button class="danger" data-act="delete" data-wid="'+w.id+'" title="永久删除这个作品">删除</button>';
   return '<div class="work-card" data-wid="'+w.id+'">' +
     '<div class="wsel"><input type="checkbox" data-wid="'+w.id+'"' + (worksSelected.has(w.id)?' checked':'') + '><span class="cb-lbl">选择</span></div>' +
     '<div class="wtop"><span class="wtitle">'+esc(w.title||'未命名')+'</span><span class="badge-st st-'+esc(w.status)+'">'+esc(STATUS_LABELS[w.status]||w.status)+'</span></div>' +
@@ -3473,6 +3476,12 @@ async function archiveWork(wid){
 async function restoreWork(wid){
   const r = await post('/api/works/'+wid+'/restore');
   if (r.ok){ showToast('已恢复'); loadWorks(); } else showToast('⚠ '+(r.error||'失败'));
+}
+async function deleteWork(wid){
+  const ok = await confirmDanger('永久删除这个作品？','删除后不可恢复，关联的讨论记录也会从列表中移除。','删除');
+  if (!ok) return;
+  const r = await post('/api/works/'+wid+'/delete');
+  if (r.ok){ showToast('已删除'); loadWorks(); } else showToast('⚠ '+(r.error||'失败'));
 }
 async function openWorkDetail(wid){
   const d = await fetch('/api/works/'+wid).then(r=>r.json());
@@ -4082,9 +4091,18 @@ async function apiSetRender(){
     '</div>' +
     /* --- TTS --- */
     '<div class="set-card" style="border:1px solid var(--c-border);border-radius:10px;padding:12px;background:var(--c-card)">' +
-      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b><span class="ico" style="width:14px;height:14px"><svg><use href="#ic-speaker"/></svg></span> 配音（ModelScope）</b>' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b><span class="ico" style="width:14px;height:14px"><svg><use href="#ic-speaker"/></svg></span> 配音（IndexTTS）</b>' +
         st(!!tts.has_token, tts.has_token ? '已配置（' + esc(tts.token_masked) + '）' : '未配置') + '</div>' +
       '<div class="muted" style="font-size:12px;margin:6px 0">IndexTTS-2.5 音色克隆。浏览器已登录 modelscope.cn 时可一键自动获取，无需手动找令牌。</div>' +
+      /* --- 推理后端选择 --- */
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0">' +
+        '<span class="muted" style="font-size:12px">推理后端：</span>' +
+        '<select id="apiTtsBackend" style="flex:1;min-width:200px">' +
+          '<option value="modelscope"' + (tts.backend !== 'local' ? ' selected' : '') + '>🌐 在线（ModelScope 云端，需 Token）</option>' +
+          '<option value="local"' + (tts.backend === 'local' ? ' selected' : '') + '>💻 本地（IndexTTS 本机显卡推理，免 Token）</option>' +
+        '</select>' +
+      '</div>' +
+      '<div id="apiGpuInfo" style="font-size:12px;margin:2px 0 8px"></div>' +
       '<div class="mon-add">' +
         '<input id="apiTtsToken" type="password" placeholder="' + (tts.has_token ? '更换 Token（留空 = 保持不变）' : '粘贴 SDK Token（ms- 开头）') + '" style="flex:1" />' +
         '<button class="btn-primary" id="apiTtsFetch" style="padding:5px 12px;background:#af52de"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-spark"/></svg></span> 自动获取</button>' +
@@ -4094,6 +4112,23 @@ async function apiSetRender(){
       '<div class="muted" data-apiresult="tts" style="font-size:12px;margin-top:6px"></div>' +
     '</div>';
   const setResult = (kind, html) => { const el = body.querySelector('[data-apiresult="' + kind + '"]'); if (el) el.innerHTML = html; };
+  // 加载本机 GPU 信息（判断能否跑本地 IndexTTS）
+  const gpuEl = $('apiGpuInfo');
+  if (gpuEl) {
+    try {
+      const g = await fetch('/api/system/gpu').then(r => r.json());
+      const gp = g.gpu || {};
+      if (gp.name) {
+        gpuEl.innerHTML = '🖥️ 本机显卡：<b>' + esc(gp.name) + '</b> · ' + gp.vram_gb + 'GB 显存（可用 ' + gp.vram_free_gb + 'GB）· 驱动 ' + esc(gp.driver) +
+          (gp.compute_cap ? ' · 计算能力 ' + esc(gp.compute_cap) : '') +
+          (gp.compute_cap && parseFloat(gp.compute_cap) >= 9.0
+            ? ' — ✅ 可运行本地 IndexTTS（RTX 50系 Blackwell）'
+            : ' — ⚠️ 显卡较老，本地推理可能较慢');
+      } else {
+        gpuEl.innerHTML = '<span class="muted">⚠️ 未检测到 NVIDIA 显卡，本地 IndexTTS 将回退到 CPU 推理（较慢），建议在线模式。</span>';
+      }
+    } catch (e) { gpuEl.innerHTML = ''; }
+  }
   // 保存
   body.querySelectorAll('[data-apisave]').forEach(btn => btn.addEventListener('click', async () => {
     const kind = btn.dataset.apisave;
@@ -4107,9 +4142,12 @@ async function apiSetRender(){
       if (!key) { showToast('请先粘贴 API Key'); btn.disabled = false; return; }
       r = await post('/api/settings/asr', { api_key: key });
     } else {
+      const backend = $('apiTtsBackend') ? $('apiTtsBackend').value : 'modelscope';
       const token = $('apiTtsToken').value.trim();
-      if (!token) { showToast('请先粘贴 Token'); btn.disabled = false; return; }
-      r = await post('/api/settings/tts', { token });
+      // 本地后端不强制要 Token；在线后端才需要
+      if (backend === 'modelscope' && !token) { showToast('在线后端请先粘贴 Token，或改选「本地推理」'); btn.disabled = false; return; }
+      r = await post('/api/settings/tts', { token, backend });
+      if (r.ok) $('apiTtsToken').value = '';
     }
     btn.disabled = false;
     if (r.ok) { showToast('✅ 已保存'); await apiSetRender(); }
@@ -8179,11 +8217,12 @@ const RW_STATUS = { running:'进行中', review:'待定稿', iterating:'迭代�
 
 // 单条洗稿记录卡片（列表与筛选共用）
 function rwItemHtml(s){
-  const st = RW_STATUS[s.status] || s.status;
+  // 优先用后端推算的真实阶段文案，不再全是"进行中"
+  const stage = s.stage_text || RW_STATUS[s.status] || s.status;
   const cls = s.status === 'done' ? 'ok' : (s.status === 'running' ? 'busy' : 'warn');
   const mt = s.metrics || {};
   return '<div class="rw-item' + (rwCurrent === s.id ? ' active' : '') + '" onclick="openRewrite(\'' + s.id + '\')">' +
-    '<div class="t">✂️ ' + esc(s.title || s.id) + ' <span class="badge ' + cls + '">' + esc(st) + '</span></div>' +
+    '<div class="t">✂️ ' + esc(s.title || s.id) + ' <span class="badge ' + cls + '">' + esc(stage) + '</span></div>' +
     '<div class="meta">' +
       (mt.likes ? '👍' + esc(mt.likes) : '') + (mt.comments ? '💬' + esc(mt.comments) : '') +
       (mt.forwards ? '↗' + esc(mt.forwards) : '') + (mt.saves ? '⭐' + esc(mt.saves) : '') +
@@ -8211,16 +8250,24 @@ function toggleRwInsight(){
 async function loadRewrite(){
   const v = $('view-rewrite');
   v.innerHTML = skelList(2);
+  // 加载超时兜底：5 秒后如果还没渲染出来，显示「仍在加载…」提示
+  const timeoutId = setTimeout(() => {
+    if (v.querySelector('.skeleton')) {
+      v.innerHTML = '<div class="empty">⏳ 仍在加载中…如果超过 10 秒请检查服务是否启动，或<button class="btn-ghost" onclick="loadRewrite()">重试</button></div>';
+    }
+  }, 5000);
   try {
     const [l, m] = await Promise.all([
       fetch('/api/rewrite/list').then(r=>r.json()),
       fetch('/api/rewrite/meta').then(r=>r.json())
     ]);
+    clearTimeout(timeoutId);
     rwSessions = (l.ok ? l.sessions : []) || [];
     rwMeta = m.ok ? m : null;
     renderRewrite(v);
   } catch(e){
-    v.innerHTML = '<div class="empty">⚠ 加载失败: ' + esc(e.message) + '</div>';
+    clearTimeout(timeoutId);
+    v.innerHTML = '<div class="empty">⚠ 加载失败: ' + esc(e.message) + '<br><br><button class="btn-ghost" onclick="loadRewrite()">重试</button></div>';
   }
 }
 
@@ -8809,6 +8856,13 @@ function rwDetailHtml(s){
     '<button class="btn-ghost" onclick="rwShowDiff(\'' + s.id + '\')">🔍 原稿vs成品</button>' +
     '</div>';
 
+  // 成稿后下一步引导（明确告诉老板下一步该点什么）
+  const nextGuide = s.status === 'done'
+    ? '<div class="rw-guide">🎉 已完成！下一步可：<b>保存为作品</b>入库、<b>复制全文</b>去发布、或<b>回填成品数据</b>让阿数评价负责人。</div>'
+    : (s.status === 'review' || s.status === 'iterating'
+        ? '<div class="rw-guide">✅ 初稿已出。下一步：①鼠标 hover 句子点 💬 评论，该专家会只重写这一句；②满意后点 <b>最终审查 + 记录分工</b>。</div>'
+        : '');
+
   // 详情区默认折叠：只显示标题+状态+折叠按钮；展开后才显示进度、要求、操作
   return '<div class="rw-hd-summary">' +
       '<span class="rw-hd-title">✂️ ' + esc(s.title) + '</span>' +
@@ -8829,6 +8883,7 @@ function rwDetailHtml(s){
       (isLegacy
         ? '<div class="rw-legacy-note">⚠ 这篇是<b>旧版流程</b>产生的草稿，内容为分区草稿的拼接（可能带专家过程说明、偏长）。建议用新版完整流程<b>重新洗稿</b>得到干净的连续成品：<button class="btn-primary" style="margin-left:8px;padding:4px 12px" onclick="rwRedo(\'' + s.id + '\')">🔄 重新洗稿</button></div>'
         : '') +
+      (nextGuide || '') +
       (sentCount > 0
         ? '<div class="rw-doc-bar"><span class="rw-doc-title">📝 洗稿成品</span><span class="rw-doc-count" style="' + charColor + '">共 ' + sentCount + ' 句' + charTip + ' · 整篇连续文章，hover 句子可评论让该专家重写</span></div>'
         : '') +

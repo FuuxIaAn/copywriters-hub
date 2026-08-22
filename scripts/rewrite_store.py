@@ -254,9 +254,34 @@ def redo_session(output_dir: str, rid: str, requirements: str = "", title: str =
     return entry
 
 
+def _stage_text(entry: dict) -> str:
+    """根据 entry 实际状态推算「正在做什么」的文案（避免列表只显示干巴巴的"进行中"）。
+    阶段依据：status、parts 是否为空、是否有 final、是否有 principle_review/owner_record。"""
+    status = entry.get("status") or "running"
+    parts = entry.get("parts") or {}
+    if status == "done":
+        return "🎉 已完成"
+    if status == "iterating":
+        return "🔄 按你的评论重写中"
+    if status == "review":
+        return "✅ 初稿完成，等你逐句点评"
+    # status == "running"：按 parts 推断
+    if not parts:
+        return "🧬 阿骨正在拆骨架"
+    if not parts.get("final") or not parts["final"].get("sentences"):
+        return "✍️ 专家写稿 + 整体节奏拼装中"
+    if not entry.get("principle_review"):
+        return "⚖️ 阿审原则审查中"
+    return "✍️ 微调中"
+
+
 def list_sessions(output_dir: str) -> list:
     sess = _load(output_dir).get("sessions", [])
-    return sorted(sess, key=lambda s: s.get("created_at", ""), reverse=True)
+    sess = sorted(sess, key=lambda s: s.get("created_at", ""), reverse=True)
+    # 给每条加上 stage_text，供前端列表 badge 显示真实阶段而非干巴巴的状态名
+    for s in sess:
+        s["stage_text"] = _stage_text(s)
+    return sess
 
 
 def update_session(output_dir: str, rid: str, fn) -> dict | None:

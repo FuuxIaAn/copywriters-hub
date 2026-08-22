@@ -1293,7 +1293,25 @@ def _detect_speakers(text: str, api_config: dict, cues: list | None = None,
         else:
             print(f"[extract] 文本路线不合格（段数={len(segments)}），但无音频文件可降级")
 
+    segments = _merge_consecutive_speakers(segments)
     return segments
+
+
+def _merge_consecutive_speakers(segments: list) -> list:
+    """合并相邻同发言人的段落，避免同一说话人连续多句被拆成多个气泡展示。"""
+    if not segments:
+        return segments
+    merged = []
+    for seg in segments:
+        sp = str(seg.get("speaker") or "A").strip().upper() or "A"
+        txt = str(seg.get("text") or "").strip()
+        if not txt:
+            continue
+        if merged and merged[-1].get("speaker") == sp:
+            merged[-1]["text"] = (merged[-1].get("text") or "").rstrip() + "\n" + txt
+        else:
+            merged.append({"speaker": sp, "text": txt})
+    return merged
 
 
 def _needs_audio_retry(segments: list) -> bool:

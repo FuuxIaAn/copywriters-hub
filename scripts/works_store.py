@@ -227,6 +227,17 @@ def restore(output_dir: str, wid: str) -> dict | None:
     return update_work(output_dir, wid, lambda x: x.update({"status": prev}))
 
 
+def delete(output_dir: str, wid: str) -> bool:
+    """硬删除作品：从 works.json 中永久移除该作品。"""
+    def _fn(data):
+        works = data.get("works", [])
+        before = len(works)
+        data["works"] = [w for w in works if w.get("id") != wid]
+        return len(data["works"]) < before
+    _, removed = update(output_dir, _fn)
+    return bool(removed)
+
+
 def counts(output_dir: str) -> dict:
     data = load(output_dir)
     works = data.get("works", [])

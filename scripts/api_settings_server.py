@@ -123,6 +123,7 @@ def get_all_settings(output_dir: str) -> dict:
         "tts": {
             "has_token": bool(tts.get("token", "").strip()),
             "token_masked": _mask(tts.get("token", "")),
+            "backend": (tts.get("backend") or "modelscope") if (tts.get("backend") in ("modelscope", "local")) else "modelscope",
         },
     }
 
@@ -156,10 +157,10 @@ def save_asr_settings(output_dir: str, api_key: str) -> dict:
     return asr_server.save_asr_settings(output_dir, api_key)
 
 
-def save_tts_settings(output_dir: str, token: str) -> dict:
-    """保存 ModelScope TTS Token。"""
+def save_tts_settings(output_dir: str, token: str, backend: str = "") -> dict:
+    """保存 ModelScope TTS Token 与推理后端。"""
     import tts_server
-    return tts_server.save_settings(output_dir, token)
+    return tts_server.save_settings(output_dir, token, backend=backend)
 
 
 # ---------------------------------------------------------------- 测试
