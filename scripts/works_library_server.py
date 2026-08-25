@@ -57,13 +57,13 @@ def _crawl_mark_path(output_dir: str) -> str:
     return os.path.join(output_dir, _CRAWL_MARK)
 
 
-def _mark_crawl_started(output_dir: str, accounts: list):
+def _mark_crawl_started(output_dir: str, accounts: list, count: int = 200):
     try:
         data = {
             "running": True,
             "started_at": time.time(),
             "accounts": [a.get("id", "") for a in accounts],
-            "count": 50,
+            "count": count,
         }
         with open(_crawl_mark_path(output_dir), "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
@@ -91,6 +91,62 @@ def _read_crawl_mark(output_dir: str):
     return None
 
 
+_REEXTRACT_MARK = "workslib_reextract_resume.json"
+
+
+def _reextract_mark_path(output_dir: str) -> str:
+    return os.path.join(output_dir, _REEXTRACT_MARK)
+
+
+def _mark_reextract_started(output_dir: str, params: dict):
+    try:
+        data = {"running": True, "started_at": time.time(), **params}
+        with open(_reextract_mark_path(output_dir), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def _clear_reextract_mark(output_dir: str):
+    try:
+        p = _reextract_mark_path(output_dir)
+        if os.path.exists(p):
+            os.remove(p)
+    except Exception:
+        pass
+
+
+def _read_reextract_mark(output_dir: str):
+    try:
+        p = _reextract_mark_path(output_dir)
+        if os.path.exists(p):
+            with open(p, encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+
+def maybe_auto_resume_reextract(output_dir: str, api_config: dict | None = None) -> bool:
+    """软件启动时调用：若上次 reextract 因关软件/进程被杀而中断（标记残留），自动续跑。"""
+    mark = _read_reextract_mark(output_dir)
+    if not mark or not mark.get("running"):
+        return False
+    with _lock:
+        if _state["running"]:
+            return False
+    try:
+        print("[workslib] 检测到上次补扒任务中断，自动续跑…")
+        start_reextract_all_accounts(
+            output_dir, api_config=api_config or {},
+            max_segments=int(mark.get("max_segments", 3)),
+            only_errors=bool(mark.get("only_errors", False)))
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[workslib] 补扒续跑失败：{e}")
+        return False
+
+
 def maybe_auto_resume_crawl(output_dir: str, api_config: dict | None = None) -> bool:
     """软件启动时调用：若上次 crawl 因关软件/进程被杀而中断（标记残留），自动续跑。
 
@@ -103,14 +159,134 @@ def maybe_auto_resume_crawl(output_dir: str, api_config: dict | None = None) -> 
     with _lock:
         if _state["running"]:
             return False
-    # 有未完成任务标记 → 自动重新触发 crawl（count 沿用上次，默认 50）
+    # 有未完成任务标记 → 自动重新触发 crawl（count 沿用上次，默认 200）
     try:
         print("[workslib] 检测到上次扒文案任务中断，自动续跑…")
-        start_crawl(output_dir, count=int(mark.get("count", 50)), api_config=api_config or {})
+        start_crawl(output_dir, count=int(mark.get("count", 200)), api_config=api_config or {})
         return True
     except Exception as e:  # noqa: BLE001
         print(f"[workslib] 自动续跑失败：{e}")
         return False
+
+
+# ---------------------------------------------------------------- 24h 自动抓取 + 补扒
+
+_AUTO_START_MARK = "workslib_auto_start.json"
+_AUTO_START_INTERVAL = 24 * 3600  # 24 小时
+
+
+def _auto_start_path(output_dir: str) -> str:
+    return os.path.join(output_dir, _AUTO_START_MARK)
+
+
+def _read_auto_start(output_dir: str):
+    try:
+        p = _auto_start_path(output_dir)
+        if os.path.exists(p):
+            with open(p, encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+
+def _write_auto_start(output_dir: str, ts: float):
+    try:
+        with open(_auto_start_path(output_dir), "w", encoding="utf-8") as f:
+            json.dump({"last_auto_start": ts}, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def _has_stale_videos(output_dir: str, max_segments: int = 3) -> bool:
+    """任意账号下存在「段数<max_segments 或 error 非空」的视频，则返回 True。"""
+    try:
+        for acc in wstore.list_accounts(output_dir):
+            aid = acc.get("id", "")
+            for v in wstore.load_videos(output_dir, aid):
+                if v.get("error"):
+                    return True
+                if len(v.get("segments") or []) < max_segments and not v.get("extracted"):
+                    return True
+    except Exception:
+        return False
+    return False
+
+
+def _accounts_need_refetch(output_dir: str, interval_seconds: int = _AUTO_START_INTERVAL) -> bool:
+    """若任一账号的 last_fetched_at 距今超过 interval，或从未抓取过，则需要重新抓取。"""
+    try:
+        now = time.time()
+        for acc in wstore.list_accounts(output_dir):
+            lfa = acc.get("last_fetched_at")
+            if not lfa:
+                return True
+            try:
+                ts = time.mktime(time.strptime(lfa, "%Y-%m-%d %H:%M:%S"))
+            except Exception:
+                return True
+            if now - ts > interval_seconds:
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def auto_start_jobs(output_dir: str, api_config: dict | None = None,
+                    crawl_count: int = 200, max_segments: int = 3) -> dict:
+    """软件启动时调用：断点续跑 → 24h 周期自动抓取 + 补扒。
+
+    返回触发了哪些动作："resumed_crawl"/"resumed_reextract"/"started_crawl"/"started_reextract"。
+    """
+    actions = []
+    with _lock:
+        if _state["running"]:
+            return {"actions": actions, "skipped": "已有任务进行中"}
+
+    # 1) 优先断点续跑
+    if maybe_auto_resume_reextract(output_dir, api_config):
+        actions.append("resumed_reextract")
+    if maybe_auto_resume_crawl(output_dir, api_config):
+        actions.append("resumed_crawl")
+
+    with _lock:
+        if _state["running"]:
+            _write_auto_start(output_dir, time.time())
+            return {"actions": actions, "skipped": "已触发续跑，跳过 24h 检查"}
+
+    # 2) 24h 周期检查：仅当距离上次自动启动 >= 24h 才触发
+    last = _read_auto_start(output_dir)
+    now = time.time()
+    if last and (now - float(last.get("last_auto_start", 0))) < _AUTO_START_INTERVAL:
+        return {"actions": actions, "skipped": "24h 周期未到"}
+
+    # 3) 检查是否需要抓取/补扒
+    need_crawl = _accounts_need_refetch(output_dir)
+    need_reextract = _has_stale_videos(output_dir, max_segments=max_segments)
+    _write_auto_start(output_dir, now)
+
+    if need_crawl and not any("resumed" in a or "started_crawl" in a for a in actions):
+        try:
+            r = start_crawl(output_dir, count=crawl_count, api_config=api_config or {})
+            if r.get("ok"):
+                actions.append("started_crawl")
+            else:
+                actions.append(f"crawl_skip:{r.get('error')}")
+        except Exception as e:
+            actions.append(f"crawl_err:{e}")
+
+    # 补扒不与抓取并发：等抓取结束再补。简化处理：若未触发抓取且有待补扒，启动补扒。
+    if need_reextract and "started_crawl" not in actions and "resumed_crawl" not in actions:
+        try:
+            r = start_reextract_all_accounts(
+                output_dir, api_config=api_config or {},
+                max_segments=max_segments)
+            if r.get("ok"):
+                actions.append("started_reextract")
+        except Exception as e:
+            actions.append(f"reextract_err:{e}")
+
+    return {"actions": actions, "need_crawl": need_crawl, "need_reextract": need_reextract}
 
 
 def _set_progress(task: str, done: int, total: int, current: str = ""):
@@ -241,7 +417,7 @@ def start_crawl(output_dir: str, count: int = 50, api_config: dict | None = None
         _state["result"] = None
         _state["progress"] = {"done": 0, "total": len(accounts), "current": ""}
         # 持久化「进行中」标记：若任务被关软件/进程强杀打断，下次启动据此自动续跑
-        _mark_crawl_started(output_dir, accounts)
+        _mark_crawl_started(output_dir, accounts, count)
         t = threading.Thread(
             target=_run_crawl_job,
             args=(output_dir, list(accounts), count, api_config or {}),
@@ -249,6 +425,59 @@ def start_crawl(output_dir: str, count: int = 50, api_config: dict | None = None
         )
         t.start()
         return {"ok": True, "total_accounts": len(accounts)}
+
+
+def start_reextract_all_accounts(output_dir: str,
+                                 api_config: dict | None = None,
+                                 max_segments: int = 3,
+                                 only_errors: bool = False) -> dict:
+    """启动后台批量补扒任务：遍历所有账号，补扒段数过少或失败的视频。
+
+    复用 _state 进度机制（task='reextract'），前端通过 /api/workslib/status 轮询。
+    """
+    with _lock:
+        if _state["running"]:
+            return {"ok": False, "error": "已有任务进行中，请稍候"}
+        accounts = wstore.list_accounts(output_dir)
+        if not accounts:
+            return {"ok": False, "error": "作品库还没有账号"}
+        _state["running"] = True
+        _state["task"] = "reextract"
+        _state["started_at"] = time.time()
+        _state["finished_at"] = None
+        _state["last_error"] = None
+        _state["result"] = None
+        _state["progress"] = {"done": 0, "total": len(accounts), "current": "正在统计待补扒视频…"}
+        # 持久化 reextract 标记，支持断点续跑
+        _mark_reextract_started(output_dir, {
+            "max_segments": max_segments,
+            "only_errors": only_errors,
+        })
+        t = threading.Thread(
+            target=_run_reextract_all_accounts_job,
+            args=(output_dir, list(accounts), api_config or {},
+                  max_segments, only_errors),
+            daemon=True,
+        )
+        t.start()
+        return {"ok": True, "total_accounts": len(accounts)}
+
+
+def _run_reextract_all_accounts_job(output_dir: str, accounts: list,
+                                    api_config: dict,
+                                    max_segments: int, only_errors: bool):
+    result = reextract_all_accounts(
+        output_dir, api_config=api_config,
+        max_segments=max_segments, only_errors=only_errors)
+    # 任务结束后清理标记与状态
+    _clear_reextract_mark(output_dir)
+    with _lock:
+        _state["running"] = False
+        _state["finished_at"] = time.time()
+        _state["last_error"] = result.get("error") if not result.get("ok") else None
+        _state["result"] = result
+        _state["progress"] = {"done": _state["progress"]["total"],
+                              "total": _state["progress"]["total"], "current": "补扒完成"}
 
 
 def _run_crawl_job(output_dir: str, accounts: list, count: int, api_config: dict):
@@ -433,8 +662,11 @@ def _extract_one_video(video: dict, api_config: dict, cookie: str | None = None,
     else:
         fail_reason = "F2 抓取模块未就绪"
 
-    # 2) 字幕没拿到（或过短）→ ASR 转录完整口播（keep_wav=True 保留音频供辅助区分）
-    if len(text) < 5:
+    # 2) 字幕没拿到（或过短），或抓详情只拿到 desc 标题（text==desc 说明无实质口播正文）
+    #    → 继续走 ASR 转录完整口播（keep_wav=True 保留音频供辅助区分）。
+    #    关键：抖音详情里 desc 常只是短标题（如「难怪一心踢掉她老公」），
+    #    直接当正文会漏掉真实口播，必须靠 ASR 补齐多段对话。
+    if len(text) < 5 or (desc and text == desc):
         text, wav_path = _extract_one_video_asr(video, raw, output_dir, keep_wav=True)
         if len(text) < 5:
             # ASR 也失败了，记录具体原因
@@ -587,9 +819,11 @@ def _extract_one_video_asr(video: dict, raw: dict | None, output_dir: str,
     unique_urls = list(seen_path.values())
 
     # 排序：独立音轨(.mp3/.m4a/music)优先，真实视频源其次；各取一部分
+    # music 源往往直接含口播人声；但个别视频 music 源可能无人声（纯BGM），
+    # 因此保留 2 个 music 源冗余，video 源少试避免逐个 25s 下载拖死。
     music_urls = [u for u in unique_urls if re.search(r"\.(mp3|m4a)(\?|$)", u) or "ies-music" in u]
     video_urls = [u for u in unique_urls if u not in music_urls]
-    urls = music_urls[:2] + video_urls[:3]   # 最多 5 个源，避免长时间遍历
+    urls = music_urls[:2] + video_urls[:2]   # 最多 4 个源，music 优先，避免长时间遍历
     if not urls:
         return "", ""
 
@@ -676,7 +910,25 @@ def _extract_one_video_weibo(video: dict, api_config: dict, output_dir: str = ""
         if not api_key:
             fail_reason = "ASR Key 未配置，仅用标题"
         else:
-            video_path, size, dl_err = asr_server._download_video(output_dir or ".", [video_url], mid)
+            # 微博视频直链需要 weibo.com referer + 登录 cookie，否则返回 403
+            weibo_cookie = ""
+            try:
+                from monitor.fetch import get_weibo_cookie
+                weibo_cookie = get_weibo_cookie() or ""
+            except Exception:
+                weibo_cookie = ""
+            dl_headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+                ),
+                "Referer": "https://weibo.com/",
+                "Accept": "*/*",
+            }
+            if weibo_cookie:
+                dl_headers["Cookie"] = weibo_cookie
+            video_path, size, dl_err = asr_server._download_video(
+                output_dir or ".", [video_url], mid, headers=dl_headers)
             if dl_err:
                 print(f"[workslib] 微博 ASR 下载失败 {mid}: {dl_err}")
                 fail_reason = fail_reason or f"ASR 下载失败: {dl_err}"
@@ -988,6 +1240,55 @@ def reextract_stale_videos(output_dir: str, account_id: str, api_config: dict | 
             "skipped_short": skipped_short,
             "re_extracted": re_ok, "failed": re_fail,
             "details": details}
+
+
+def reextract_all_accounts(output_dir: str, api_config: dict | None = None,
+                           max_segments: int = 3, only_errors: bool = False) -> dict:
+    """对所有账号批量重扒「段数过少或失败」的视频。
+
+    返回每个账号的补扒汇总。
+    """
+    accounts = wstore.list_accounts(output_dir)
+    if not accounts:
+        return {"ok": True, "accounts": 0, "total": 0, "stale_count": 0,
+                "re_extracted": 0, "failed": 0, "skipped_short": 0,
+                "account_results": [], "msg": "没有账号"}
+
+    account_results = []
+    total = stale_count = re_ok = re_fail = skipped_short = 0
+    for idx, acc in enumerate(accounts):
+        account_id = acc.get("id", "")
+        if not account_id:
+            continue
+        # 进度回调（供异步模式显示进度条）
+        acc_name = (acc.get("nickname") or acc.get("home_url", ""))[:25]
+        _set_progress("reextract", idx, len(accounts),
+                      f"正在补扒账号「{acc_name}」({idx+1}/{len(accounts)})")
+        res = reextract_stale_videos(
+            output_dir, account_id, api_config=api_config,
+            max_segments=max_segments, only_errors=only_errors)
+        # 合并统计
+        total += res.get("total", 0)
+        stale_count += res.get("stale_count", 0)
+        skipped_short += res.get("skipped_short", 0)
+        re_ok += res.get("re_extracted", 0)
+        re_fail += res.get("failed", 0)
+        account_results.append({
+            "account_id": account_id,
+            "nickname": (acc.get("nickname") or acc.get("home_url", ""))[:30],
+            "ok": bool(res.get("ok")),
+            "total": res.get("total", 0),
+            "stale_count": res.get("stale_count", 0),
+            "re_extracted": res.get("re_extracted", 0),
+            "failed": res.get("failed", 0),
+            "msg": res.get("msg", "")
+        })
+
+    return {"ok": True, "accounts": len(accounts), "total": total,
+            "stale_count": stale_count, "re_extracted": re_ok,
+            "failed": re_fail, "skipped_short": skipped_short,
+            "account_results": account_results,
+            "msg": f"已处理 {len(accounts)} 个账号，补扒 {stale_count} 条，成功 {re_ok}，失败 {re_fail}"}
 
 
 # ---------------------------------------------------------------- 微博 Cookie 管理

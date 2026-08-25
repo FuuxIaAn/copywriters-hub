@@ -45,6 +45,15 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('f2')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 hiddenimports += collect_submodules('f2')
+# PyInstaller 的 collect_submodules('f2') 从顶层递归时，因 f2.apps 下
+# 平台子包（douyin/weibo 等）的 __init__.py 为空、walk_packages 无法
+# 下钻，导致抖音/微博抓取核心模块（crawler/filter/model/utils）没有
+# 打进 PYZ，运行时 from f2.apps.douyin.crawler import ... 失败，
+# 表现为「抓取组件未安装（f2 库不可用）」。这里改为直接从各平台子包
+# collect_submodules，确保全部打入。
+hiddenimports += collect_submodules('f2.apps.douyin')
+hiddenimports += collect_submodules('f2.apps.weibo')
+hiddenimports += collect_submodules('f2.apps.tiktok')
 tmp_ret = collect_all('curl_cffi')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('google')

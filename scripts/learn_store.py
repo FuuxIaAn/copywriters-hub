@@ -14,6 +14,11 @@
 import datetime
 import os
 import re
+import threading
+
+# 模块级锁：「爆款拆解」与「爆款学习」两个后台线程可能并发写同一专家 lessons 文件，
+# 读-解析-追加交错会导致条目丢失、编号重复。
+_LOCK = threading.Lock()
 
 LESSONS_DIRNAME = "lessons"
 MAX_LESSONS = 30          # 每位专家最多保留的吸收条目数（超出丢弃最旧的）
@@ -98,27 +103,28 @@ def append_lessons(digest_dir: str, agent_id: str, items: list) -> tuple:
     path = lessons_path(digest_dir, agent_id)
     if not items:
         return path, 0
-    if not os.path.exists(path):
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(_head(agent_id))
-    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    existing = _parse_items(path)
-    start_no = (existing[-1]["no"] + 1) if existing else 1
-    with open(path, "a", encoding="utf-8") as f:
-        for i, it in enumerate(items):
-            f.write(f"\n## [{stamp}] 吸收 #{start_no + i}\n")
-            f.write(f"- 📌 原文摘录：「{it['quote'][:MAX_QUOTE_CHARS]}」\n")
-            f.write(f"- 🧠 吸收知识点：{it['point'][:MAX_POINT_CHARS]}\n")
-            if it.get("apply"):
-                f.write(f"- ✍️ 应用方法：{it['apply'][:MAX_POINT_CHARS]}\n")
-    # 裁剪：超过 MAX_LESSONS 丢弃最旧条目
-    after = _parse_items(path)
-    if len(after) > MAX_LESSONS:
-        keep = after[-MAX_LESSONS:]
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(_head(agent_id))
-            for it in keep:
-                f.write("\n".join(it["lines"]) + "\n")
+    with _LOCK:
+        if not os.path.exists(path):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(_head(agent_id))
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        existing = _parse_items(path)
+        start_no = (existing[-1]["no"] + 1) if existing else 1
+        with open(path, "a", encoding="utf-8") as f:
+            for i, it in enumerate(items):
+                f.write(f"\n## [{stamp}] 吸收 #{start_no + i}\n")
+                f.write(f"- 📌 原文摘录：「{it['quote'][:MAX_QUOTE_CHARS]}」\n")
+                f.write(f"- 🧠 吸收知识点：{it['point'][:MAX_POINT_CHARS]}\n")
+                if it.get("apply"):
+                    f.write(f"- ✍️ 应用方法：{it['apply'][:MAX_POINT_CHARS]}\n")
+        # 裁剪：超过 MAX_LESSONS 丢弃最旧条目
+        after = _parse_items(path)
+        if len(after) > MAX_LESSONS:
+            keep = after[-MAX_LESSONS:]
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(_head(agent_id))
+                for it in keep:
+                    f.write("\n".join(it["lines"]) + "\n")
     return path, len(items)
 
 
@@ -136,29 +142,30 @@ def add_manual_lesson(digest_dir: str, agent_id: str, point: str, apply: str = "
     source = (source or "").strip()
     if quote and source and not verify_quote(quote, source):
         return lessons_path(digest_dir, agent_id), False
-    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    path = lessons_path(digest_dir, agent_id)
-    if not os.path.exists(path):
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(_head(agent_id))
-    existing = _parse_items(path)
-    start_no = (existing[-1]["no"] + 1) if existing else 1
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(f"\n## [{stamp}] 吸收 #{start_no}（用户手动补充）\n")
-        if quote:
-            f.write(f"- 📌 原文摘录：「{quote[:MAX_QUOTE_CHARS]}」\n")
-        else:
-            f.write("- 📌 原文摘录：无（用户手工补充经验）\n")
-        f.write(f"- 🧠 吸收知识点：{point[:MAX_POINT_CHARS]}\n")
-        if apply:
-            f.write(f"- ✍️ 应用方法：{apply[:MAX_POINT_CHARS]}\n")
-    after = _parse_items(path)
-    if len(after) > MAX_LESSONS:
-        keep = after[-MAX_LESSONS:]
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(_head(agent_id))
-            for it in keep:
-                f.write("\n".join(it["lines"]) + "\n")
+    with _LOCK:
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        path = lessons_path(digest_dir, agent_id)
+        if not os.path.exists(path):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(_head(agent_id))
+        existing = _parse_items(path)
+        start_no = (existing[-1]["no"] + 1) if existing else 1
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"\n## [{stamp}] 吸收 #{start_no}（用户手动补充）\n")
+            if quote:
+                f.write(f"- 📌 原文摘录：「{quote[:MAX_QUOTE_CHARS]}」\n")
+            else:
+                f.write("- 📌 原文摘录：无（用户手工补充经验）\n")
+            f.write(f"- 🧠 吸收知识点：{point[:MAX_POINT_CHARS]}\n")
+            if apply:
+                f.write(f"- ✍️ 应用方法：{apply[:MAX_POINT_CHARS]}\n")
+        after = _parse_items(path)
+        if len(after) > MAX_LESSONS:
+            keep = after[-MAX_LESSONS:]
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(_head(agent_id))
+                for it in keep:
+                    f.write("\n".join(it["lines"]) + "\n")
     return path, True
 
 

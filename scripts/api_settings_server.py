@@ -235,9 +235,11 @@ def test_tts(output_dir: str) -> dict:
     token = tts_server._load_token(output_dir)
     if not token:
         return {"ok": False, "error": "未配置 ModelScope Token"}
+    # Client 构造会拉取创空间 API 配置，可能长时间阻塞——复用 tts_server 的带超时连接
     try:
-        from gradio_client import Client
-        client = Client(tts_server.STUDIO_API, headers={"Authorization": f"Bearer {token}"})
+        client = tts_server._connect_client(token)
+        if not client:
+            return {"ok": False, "error": "ModelScope 连接超时，请稍后重试"}
         # 只调用 view_api 做鉴权探测，不真正生成
         info = client.view_api(return_format="dict") or {}
         endpoints = sorted((info.get("named_endpoints") or {}).keys())
@@ -330,35 +332,64 @@ def _fetch_via_playwright(fallback_error: str = "") -> dict:
     try:
         js = r'''
 const { chromium } = require('playwright');
+const os = require('os');
+const path = require('path');
 (async () => {
-  let browser;
+  let ctx;
   try {
-    // 优先使用系统已安装的 Chrome，避免下载 Chromium
-    browser = await chromium.launch({
-      channel: 'chrome',
+    // 优先复用用户已登录的真实 Chrome/Edge 配置（登录态存在 localStorage，普通 headless 拿不到）。
+    // 候选：Chrome User Data / Edge User Data / 系统默认 profile。
+    const candidates = [
+      process.env.LOCALAPPDATA + '\\Google\\Chrome\\User Data',
+      process.env.LOCALAPPDATA + '\\Microsoft\\Edge\\User Data',
+    ];
+    const channel = candidates[0] && require('fs').existsSync(candidates[0]) ? 'chrome' : 'msedge';
+    const userDataDir = candidates.find(d => require('fs').existsSync(d));
+    const launchOpts = {
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    const context = await browser.newContext({
-      viewport: { width: 1280, height: 800 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    });
-    const page = await context.newPage();
-    await page.goto('https://www.modelscope.cn/my/myaccesstoken', { waitUntil: 'networkidle', timeout: 30000 });
-    await page.waitForTimeout(2000);
-    const text = await page.evaluate(() => document.body.innerText);
-    const html = await page.content();
-    const full = text + ' ' + html;
-    const m = full.match(/\b(ms-[a-zA-Z0-9_\-]{16,})\b/);
-    if (m) {
-      console.log(JSON.stringify({ ok: true, token: m[1], source: 'playwright' }));
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    };
+    if (userDataDir) {
+      launchOpts.channel = channel;
+      ctx = await Promise.race([
+        chromium.launchPersistentContext(userDataDir, launchOpts),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('启动浏览器超时（Chrome 可能正被占用）')), 30000))
+      ]);
     } else {
-      console.log(JSON.stringify({ ok: false, error: '页面未找到 ms- 格式的 Token，可能需要手动创建令牌', snippet: text.slice(0, 500) }));
+      ctx = await chromium.launch({ channel: channel, headless: true, args: ['--no-sandbox'] });
+    }
+    const page = ctx.pages()[0] || await ctx.newPage();
+    await page.goto('https://www.modelscope.cn/my/myaccesstoken', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // 等待页面异步渲染出 SDK Token（ms- 开头长串），最多 15s
+    try {
+      await page.waitForFunction(
+        () => /\bms-[a-zA-Z0-9_\-]{24,}\b/.test(document.body.innerText),
+        { timeout: 15000, polling: 500 }
+      );
+    } catch (_) {}
+    const text = await page.evaluate(() => document.body.innerText);
+    const url = page.url();
+    // 提取 SDK Token：排除页面路由/导航文本（ms-page-、ms-studios 等）
+    const candidates2 = (text.match(/ms-[a-zA-Z0-9_\-]{24,}/g) || []);
+    const bad = /ms-(page|studios|sdk|catalog|model|datasets|spaces|users|issues|docs|help|api|dashboard|web|token|list|git|oss|auth|signin|signup|home|profile|setting)/i;
+    const filtered = candidates2.filter(t => !bad.test(t));
+    if (filtered.length) {
+      console.log(JSON.stringify({ ok: true, token: filtered[0], source: 'playwright_profile' }));
+    } else {
+      const loggedIn = /(新建令牌|创建令牌|SDK Token|access token|退出登录|登出|Logout)/i.test(text);
+      console.log(JSON.stringify({
+        ok: false,
+        error: loggedIn
+          ? '已登录但未在令牌页找到 ms- 开头的 SDK Token，请先在 modelscope.cn 个人中心「创建令牌」'
+          : '未检测到 modelscope.cn 登录态（需先在 Chrome/Edge 登录）；请登录后重试，或关闭已打开的浏览器避免配置占用',
+        snippet: (text || '').slice(0, 200),
+        url: url
+      }));
     }
   } catch (e) {
     console.log(JSON.stringify({ ok: false, error: e.message }));
   } finally {
-    if (browser) await browser.close();
+    if (ctx) { try { await ctx.close(); } catch (e) {} }
   }
 })();
 '''
@@ -368,10 +399,14 @@ const { chromium } = require('playwright');
         env = os.environ.copy()
         # 让 require 能找到 workspace 下的 playwright
         env["NODE_PATH"] = "C:\\Users\\linsh\\.workbuddy\\binaries\\node\\workspace\\node_modules"
-        result = subprocess.run(
-            [node_exe, script_path],
-            capture_output=True, text=True, timeout=60, env=env,
-        )
+        try:
+            result = subprocess.run(
+                [node_exe, script_path],
+                capture_output=True, text=True, timeout=55, env=env,
+            )
+        except subprocess.TimeoutExpired:
+            return {"ok": False,
+                    "error": "自动获取超时（浏览器配置可能正被占用）。可关闭已打开的浏览器后重试，或到 modelscope.cn 个人中心「访问令牌」复制 SDK Token 后手动粘贴。"}
         # 从 stdout 找 JSON 行
         for line in result.stdout.splitlines():
             line = line.strip()

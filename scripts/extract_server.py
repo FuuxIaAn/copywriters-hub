@@ -473,11 +473,19 @@ def _is_weak_plain_text(text: str) -> bool:
     return False
 
 
-def extract_from_link(output_dir: str, share_url: str, api_config: dict) -> dict:
+def extract_from_link(output_dir: str, share_url: str, api_config: dict, progress_cb=None) -> dict:
     """主入口：从抖音分享链接提取文案 + 自动区分发言人。
     api_config: {base_url, api_key, model} 供 LLM 调用
+    progress_cb: 可选，阶段进度回调 progress_cb(msg: str)
     返回 {ok, extract_id, text, segments, video_info}
     """
+    def _prog(msg: str):
+        if progress_cb:
+            try:
+                progress_cb(msg)
+            except Exception:
+                pass
+
     if MOCK:
         return _mock_extract(output_dir, share_url, api_config)
 
@@ -507,6 +515,7 @@ def extract_from_link(output_dir: str, share_url: str, api_config: dict) -> dict
         raw = await _fetch_detail(kwargs, aweme_id)
         return aweme_id, raw
 
+    _prog("正在解析抖音链接并抓取视频信息…")
     try:
         aweme_id, raw = asyncio.run(_run())
     except Exception as e:
@@ -541,6 +550,7 @@ def extract_from_link(output_dir: str, share_url: str, api_config: dict) -> dict
     # 下载视频并落地（供 ASR 降级 + 语速测量 + 音频辅助区分发言人用）。
     # 音轨要保留到语速测完并固化进 record 之后才能删，删除逻辑见 measure_speaker_speed。
     audio_path = ""
+    _prog("正在下载视频（长视频可能稍慢）…")
     try:
         from asr_server import _pick_video_urls, _download_video
         urls = _pick_video_urls(raw)
@@ -561,6 +571,7 @@ def extract_from_link(output_dir: str, share_url: str, api_config: dict) -> dict
     base_text_weak = _is_weak_plain_text(base_text)
     need_asr = (not cues) or base_text_weak
     if need_asr and audio_path:
+        _prog("未识别到字幕，正在用语音转录完整口播（长视频可能需要一两分钟）…")
         try:
             from asr_server import _extract_audio, _call_asr, _load_key, _llm_correct_text
             asr_key = _load_key(output_dir)
@@ -628,12 +639,14 @@ def extract_from_link(output_dir: str, share_url: str, api_config: dict) -> dict
         return {"ok": False, "error": "未能从视频中提取到文案（该视频没有字幕和描述，且 ASR 转录失败或未配置）"}
 
     # LLM 区分发言人（传入 cues 时间戳 + 音轨路径，启用音频辅助降级路线）
+    _prog("正在用 AI 区分对话发言人…")
     segments = _detect_speakers(text, api_config, cues, audio_path)
 
     # 句级时间戳对齐到 segments（供逐句测语速）
     segments = _align_timestamps(segments, cues)
 
     # LLM 提取求测者经历画像
+    _prog("正在提取来访者经历画像…")
     visitor_profile = _extract_visitor_profile(segments, api_config)
 
     extract_id = _uid(share_url[:32])
@@ -656,6 +669,7 @@ def extract_from_link(output_dir: str, share_url: str, api_config: dict) -> dict
 
     # 提取完成后自动生成「口语变化档案」（语速随内容 + 情绪 + 重音停顿，实测校准）。
     # 优先测求测者 B（配音主要给来访者做 agent 模拟），失败不阻塞提取主流程。
+    _prog("正在生成口语变化档案（可跳过）…")
     _auto_build_style(output_dir, extract_id, record, api_config)
 
     _save_latest(output_dir, record)
@@ -1188,7 +1202,7 @@ def _llm_call(api_config: dict, prompt: str, max_tokens: int = 4096):
         client = OpenAI(
             base_url=api_config["base_url"],
             api_key=api_config["api_key"],
-            timeout=300,
+            timeout=120,
             max_retries=1,
         )
         resp = client.chat.completions.create(
@@ -1839,7 +1853,7 @@ def _extract_visitor_profile(segments: list, api_config: dict) -> dict:
 
     try:
         from openai import OpenAI
-        client = OpenAI(base_url=api_config["base_url"], api_key=api_config["api_key"])
+        client = OpenAI(base_url=api_config["base_url"], api_key=api_config["api_key"], timeout=120)
         resp = client.chat.completions.create(
             model=api_config.get("model", "deepseek-chat"),
             messages=[{"role": "user", "content": prompt}],
@@ -1935,6 +1949,33 @@ def update_segment(output_dir: str, extract_id: str, seg_idx: int, speaker: str)
     _write_json(path, record)
     _save_latest(output_dir, record)
     return {"ok": True, "segments": segments}
+
+
+def swap_speakers(output_dir: str, extract_id: str) -> dict:
+    """一键对换：把该提取记录里所有 A·师傅 与 B·求测者 的发言互换。
+
+    仅对 A↔B 互换，其他标注（如 C、空）保持不变。写回磁盘并刷新 latest。
+    """
+    path = os.path.join(_dir(output_dir), f"{extract_id}.json")
+    record = _read_json(path, None)
+    if not record:
+        return {"ok": False, "error": "提取记录不存在"}
+    segments = record.get("segments") or []
+    if not segments:
+        return {"ok": False, "error": "没有可对换的发言分段"}
+    swapped = 0
+    for seg in segments:
+        sp = (seg.get("speaker") or "A").strip().upper()
+        if sp == "A":
+            seg["speaker"] = "B"
+            swapped += 1
+        elif sp == "B":
+            seg["speaker"] = "A"
+            swapped += 1
+    record["segments"] = segments
+    _write_json(path, record)
+    _save_latest(output_dir, record)
+    return {"ok": True, "segments": segments, "swapped": swapped}
 
 
 def resegment_record(output_dir: str, extract_id: str, api_config: dict) -> dict:
@@ -2170,3 +2211,86 @@ def _mock_extract(output_dir: str, share_url: str, api_config: dict) -> dict:
     _auto_build_style(output_dir, extract_id, record, api_config)
     _save_latest(output_dir, record)
     return {"ok": True, "extract_id": extract_id, **record}
+
+
+# ---------------------------------------------------------------- 异步提取任务
+# extract_from_link 对长视频可能耗时数分钟（下载视频 + ASR 转录 + 多次 LLM 调用），
+# 若在 Flask 请求线程里同步跑，前端 fetch 会在 120s 超时被 AbortController 中断，
+# 表现为「识别不出来」；用户重试还会堆积占用 Flask 工作线程。
+# 因此改为：提交任务 -> 后台线程执行 -> 轮询进度/结果。
+
+import threading as _threading
+
+# 任务日志对账（tasks.jsonl）：识别任务 begin/success/error 三态（「服务无响应」遮罩对账用）
+try:
+    import task_log as _task_log
+except ImportError:  # 独立运行兜底
+    _task_log = None
+
+_EXTRACT_TASK_LOCK = _threading.Lock()
+_EXTRACT_TASKS = {}  # task_id -> {status, progress_msg, result/error, started_at, finished_at}
+
+
+def start_extract_task(output_dir: str, share_url: str, api_config: dict) -> str:
+    """异步启动一次 extract_from_link，返回 task_id（立即返回，后台执行）。"""
+    task_id = _uid("extracttask")
+    with _EXTRACT_TASK_LOCK:
+        _EXTRACT_TASKS[task_id] = {
+            "status": "running",
+            "progress_msg": "已提交，正在解析链接…",
+            "started_at": _now(),
+            "finished_at": None,
+            "result": None,
+            "error": None,
+        }
+    if _task_log is not None:
+        _task_log.write(output_dir, "extract", "start", "begin", task_id=task_id, url=(share_url or "")[:120])
+
+    def _cb(msg: str):
+        with _EXTRACT_TASK_LOCK:
+            if task_id in _EXTRACT_TASKS:
+                _EXTRACT_TASKS[task_id]["progress_msg"] = msg
+
+    def _worker():
+        try:
+            _cb("正在抓取视频信息…")
+            result = extract_from_link(
+                output_dir, share_url, api_config,
+                progress_cb=_cb,
+            )
+            with _EXTRACT_TASK_LOCK:
+                if task_id in _EXTRACT_TASKS:
+                    _EXTRACT_TASKS[task_id].update({
+                        "status": "done",
+                        "result": result,
+                        "error": None if result.get("ok") else result.get("error"),
+                        "finished_at": _now(),
+                    })
+            if _task_log is not None:
+                if result.get("ok"):
+                    _task_log.write(output_dir, "extract", "start", "success", task_id=task_id)
+                else:
+                    _task_log.write(output_dir, "extract", "start", "error",
+                                    error=result.get("error") or "识别结果不完整", task_id=task_id)
+        except Exception as e:  # noqa: BLE001
+            with _EXTRACT_TASK_LOCK:
+                if task_id in _EXTRACT_TASKS:
+                    _EXTRACT_TASKS[task_id].update({
+                        "status": "done",
+                        "error": str(e),
+                        "finished_at": _now(),
+                    })
+            print(f"[extract] 识别任务异常: {e}")
+            if _task_log is not None:
+                _task_log.write(output_dir, "extract", "start", "error",
+                                error=_task_log.error_text(e), task_id=task_id)
+
+    _threading.Thread(target=_worker, daemon=True, name=f"extract-task-{task_id}").start()
+    return task_id
+
+
+def get_extract_task(task_id: str) -> dict | None:
+    """返回任务状态快照；task 不存在返回 None。"""
+    with _EXTRACT_TASK_LOCK:
+        t = _EXTRACT_TASKS.get(task_id)
+        return dict(t) if t else None

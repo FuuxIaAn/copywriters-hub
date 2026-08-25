@@ -20,6 +20,11 @@ import re
 import threading
 import uuid
 
+try:
+    from _safe_io import atomic_write_json, safe_load_json
+except ImportError:
+    atomic_write_json = safe_load_json = None
+
 REWRITES_FILENAME = "rewrites.json"
 
 # 分区定义（初始负责人 = 默认最优匹配，评价机制可替换）
@@ -97,7 +102,11 @@ def _now() -> str:
 
 def _load(output_dir: str) -> dict:
     path = rewrites_path(output_dir)
-    if os.path.exists(path):
+    if safe_load_json is not None:
+        data = safe_load_json(path, None)
+        if data is not None:
+            return data
+    elif os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -119,6 +128,10 @@ def _load(output_dir: str) -> dict:
 def _save(output_dir: str, data: dict):
     data["updated_at"] = _now()
     path = rewrites_path(output_dir)
+    if atomic_write_json is not None:
+        if not atomic_write_json(path, data):
+            print(f"[rewrite] 保存洗稿档案失败: {path}")
+        return
     try:
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -189,8 +202,10 @@ def replacement_log(output_dir: str) -> list:
 
 # ---------- 洗稿会话存档 ----------
 
-def create_session(output_dir: str, original: str, metrics: dict, requirements: str = "", title: str = "") -> dict:
-    """新建一篇洗稿的存档骨架，返回存档条目。"""
+def create_session(output_dir: str, original: str, metrics: dict, requirements: str = "", title: str = "",
+                   source_url: str = "", source_platform: str = "", source_video_id: str = "") -> dict:
+    """新建一篇洗稿的存档骨架，返回存档条目。source_* 记录素材来源（从监控选材带入），
+    供保存为作品时把「打开视频」链接一并带过去。"""
     rid = "rw_" + uuid.uuid4().hex[:10]
     entry = {
         "id": rid,
@@ -198,6 +213,9 @@ def create_session(output_dir: str, original: str, metrics: dict, requirements: 
         "original": original,
         "metrics": metrics or {},
         "requirements": (requirements or "").strip(),
+        "source_url": source_url or "",
+        "source_platform": source_platform or "",
+        "source_video_id": source_video_id or "",
         "status": "running",          # running / review / iterating / done
         "skeleton": None,             # 阿骨拆解的骨架
         "analysis": {},               # region_id -> {agent, text}（全员分析）
@@ -256,20 +274,38 @@ def redo_session(output_dir: str, rid: str, requirements: str = "", title: str =
 
 def _stage_text(entry: dict) -> str:
     """根据 entry 实际状态推算「正在做什么」的文案（避免列表只显示干巴巴的"进行中"）。
-    阶段依据：status、parts 是否为空、是否有 final、是否有 principle_review/owner_record。"""
+    阶段依据：
+    1. 优先用最近一次 phase 事件文案（last_phase，与详情里的事件流实时一致），
+       避免「列表说『阿骨拆骨架』但详情已经到阶段 3」的历史 bug；
+    2. 若超过 5 分钟没活动（last_event_ts），标"⚠️ 可能卡住"提示用户重试；
+    3. 兜底按 skeleton/analysis/parts 字段推断。"""
+    import time as _t
     status = entry.get("status") or "running"
     parts = entry.get("parts") or {}
     if status == "done":
         return "🎉 已完成"
+    if status == "failed":
+        return "❌ 洗稿失败，可点「🔄 重新洗」重试"
     if status == "iterating":
         return "🔄 按你的评论重写中"
     if status == "review":
         return "✅ 初稿完成，等你逐句点评"
-    # status == "running"：按 parts 推断
-    if not parts:
+    # running：先看 last_phase（实时）+ stalled 判断
+    last_phase = entry.get("last_phase")
+    last_ts = entry.get("last_event_ts")
+    if last_phase:
+        if last_ts and (_t.time() - float(last_ts)) > 900:  # 15 分钟没活动 = 可能卡住（洗稿全流程通常 10-15 分钟，5 分钟太敏感）
+            return f"⚠️ 可能卡住：{last_phase}"
+        return last_phase
+    # 兜底按字段推断（兼容老数据没有 last_phase）
+    if not entry.get("skeleton"):
         return "🧬 阿骨正在拆骨架"
+    if not entry.get("analysis"):
+        return "🔍 全员分析原稿（爆点/不可动句）"
+    if not parts:
+        return "✍️ 专家分区写稿中"
     if not parts.get("final") or not parts["final"].get("sentences"):
-        return "✍️ 专家写稿 + 整体节奏拼装中"
+        return "🧩 整体节奏拼装中"
     if not entry.get("principle_review"):
         return "⚖️ 阿审原则审查中"
     return "✍️ 微调中"

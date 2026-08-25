@@ -23,7 +23,7 @@ import re
 MIN_DIGG_THRESHOLD = 10000
 
 # 账号一览：每个账号最多展示的达标（≥门槛）视频条数
-MAX_ACCOUNT_TOP = 3
+MAX_ACCOUNT_TOP = 10
 
 try:
     import jieba
@@ -219,16 +219,38 @@ def build_report(accounts_results: list[dict], top_n: int = 10) -> dict:
         if _is_recent(v.get("create_time", ""), days=90)
     ]
 
-    # 高赞榜：近 90 天达标视频按点赞降序
-    top_videos = sorted(qualified_recent, key=lambda x: x.get("digg_count", 0), reverse=True)[
-        :top_n
-    ]
+    # 高赞榜：每个账号取点赞降序前 MAX_ACCOUNT_TOP 条，合并为统一榜单（按点赞降序，不截断）。
+    # 取消 MIN_DIGG_THRESHOLD 过滤：用户要的是「每个账号近十条最高赞」，
+    # 而不是「达标爆款」——否则小账号永远看不到自己的榜。
+    top_videos = []
+    for r in accounts_results:
+        if not r.get("ok"):
+            continue
+        acc = r.get("account") or {}
+        nick = (acc.get("nickname") or "").strip()
+        author = nick or (r.get("note") or "").strip() or _short_account_name(r.get("home_url", ""))
+        videos = sorted(
+            r.get("videos", []),
+            key=lambda x: x.get("digg_count", 0),
+            reverse=True,
+        )[:MAX_ACCOUNT_TOP]
+        for v in videos:
+            v["author_nickname"] = author
+            top_videos.append(v)
+    top_videos.sort(key=lambda x: x.get("digg_count", 0), reverse=True)
 
     # 账号一览：列出全部监控账号（含抓取失败的），前端只展示「账号 + 粉丝数」。
     account_top = {}
     for r in accounts_results:
         acc = r.get("account") or {}
-        name = acc.get("nickname") or r.get("note") or r.get("home_url") or "未知账号"
+        # 展示名：优先本次抓到的真实昵称 → 已存储昵称 → 备注 note → 短链接形式（绝不用整条长 URL）
+        nick = (acc.get("nickname") or "").strip()
+        name = (
+            nick
+            or (r.get("stored_nickname") or "").strip()
+            or (r.get("note") or "").strip()
+            or _short_account_name(r.get("home_url", ""))
+        )
         if not r.get("ok"):
             # 抓取失败：仍列出，粉丝数沿用已有资料（无则 0），无视频
             account_top[name] = {
@@ -239,12 +261,10 @@ def build_report(accounts_results: list[dict], top_n: int = 10) -> dict:
                 "video_count": 0,
                 "raw_count": 0,
                 "top": [],
+                "fetch_failed": True,
             }
             continue
-        videos = [
-            v for v in r.get("videos", [])
-            if v.get("digg_count", 0) >= MIN_DIGG_THRESHOLD
-        ]
+        videos = list(r.get("videos", []))
         videos.sort(key=lambda x: x.get("digg_count", 0), reverse=True)
         top = videos[:MAX_ACCOUNT_TOP]
         account_top[name] = {
@@ -287,6 +307,26 @@ def _now_str() -> str:
     import datetime
 
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _short_account_name(home_url: str) -> str:
+    """从主页链接里抠一个可读的短名，绝不在昵称位置显示整条长 URL。
+
+    抓取失败且无昵称/备注时兜底用：优先取 sec_uid 尾号，否则显示「未命名账号」。
+    """
+    u = (home_url or "").strip()
+    if not u:
+        return "未命名账号"
+    # 抖音主页 /user/<sec_uid> 取尾号（约 8-12 位即可辨认）
+    m = re.search(r"/user/([^/?#]+)", u)
+    if m:
+        tail = m.group(1)
+        return "账号 " + (tail[-10:] if len(tail) > 10 else tail)
+    # 其它链接：去掉协议/域名后的路径尾段
+    tail = u.rstrip("/").rsplit("/", 1)[-1]
+    if tail and "douyin" not in tail and "http" not in tail:
+        return "账号 " + tail[:20]
+    return "未命名账号"
 
 
 def _is_recent(create_time, days: int = 90) -> bool:

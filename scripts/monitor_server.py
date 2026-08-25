@@ -11,6 +11,7 @@ server.py 只做薄路由转发，具体逻辑都在这里，便于独立测试�
               相对上一次快照逐视频算增量，数据异常（暴涨/新视频/涨粉）产生提醒
 """
 import asyncio
+import json
 import os
 import sys
 import threading
@@ -27,6 +28,12 @@ import monitor.store as mstore  # noqa: E402
 import monitor.topics as mtopics  # noqa: E402
 import monitor.realtime_store as rstore  # noqa: E402
 
+# 任务日志对账（tasks.jsonl）：抓取任务 begin/success/error 三态（「服务无响应」遮罩对账用）
+try:
+    import task_log as _task_log
+except ImportError:  # 独立运行兜底
+    _task_log = None
+
 # ---------------------------------------------------------------- 全局抓取状态
 
 _lock = threading.Lock()
@@ -37,6 +44,19 @@ _fetch_state = {
     "finished_at": None,
     "last_error": None,
     "report": None,  # 最近一次成功报告（内存缓存）
+}
+
+# 预加载文案进度（字幕/ASR 转写中），供前端展示「某条视频文案正在加载」。
+# 抓取主流程的 fetch 进度跑完后，会进入 preload 阶段，此时展示 preload 进度。
+_preload_state = {
+    "running": False,
+    "done": 0,
+    "total": 0,
+    "current": "",      # 正在处理的视频描述/标题（给用户看是那一条）
+    "current_aweme_id": "",
+    "success": 0,
+    "started_at": None,
+    "finished_at": None,
 }
 
 
@@ -80,13 +100,24 @@ def _validate_url(home_url: str) -> str | None:
 
 
 def get_accounts(data_dir: str, output_dir: str) -> dict:
-    """返回账号列表，并附带每个账号「距上次抓取更新 X 条视频」的快照信息。"""
+    """返回账号列表，并附带每个账号的抓取口径统计（2026-08 明确口径，供前端「已抓 X/总数 Y」展示）：
+
+    口径说明（三者语义不同，勿混用）：
+      - fetched_count：最近一次抓取「实际抓回并入库」的视频条数（最新快照的 video_count，
+        即该账号 top 榜条数，上限取决于抓取策略，通常远小于主页作品总数）；
+      - total_count：账号主页显示的「作品总数」（资料里的 aweme_count，即用户看到的「总数」）；
+      - new_count：本次相对上一次快照「新增」的视频数（无历史快照时 = fetched_count，
+        因为第一次抓取的每条都是"新的"）。
+    """
     accounts = mstore.load_accounts(data_dir)
     for a in accounts:
         info = mstore.load_account_new_count(output_dir, a.get("id", ""))
         a["new_count"] = info["new_count"]
         a["has_base"] = info["has_base"]
         a["last_fetched_at"] = info["fetched_at"]
+        # 明确口径字段：已抓条数 / 主页作品总数（无快照时 fetched_count=None，前端显示「尚未抓取」）
+        a["fetched_count"] = info.get("fetched_count")
+        a["total_count"] = a.get("aweme_count") or None
     return {"ok": True, "accounts": accounts}
 
 
@@ -138,26 +169,76 @@ def remove_account(data_dir: str, account_id: str) -> dict:
 
 # ---------------------------------------------------------------- 抓取任务
 
-def start_fetch(data_dir: str, output_dir: str, force: bool = False) -> dict:
+def start_fetch(data_dir: str, output_dir: str, force: bool = False,
+                api_config: dict | None = None) -> dict:
     with _lock:
-        if _fetch_state["running"] and not force:
-            return {"ok": False, "error": "已有抓取任务进行中，请稍候"}
+        if _fetch_state["running"]:
+            if not force:
+                return {"ok": False, "error": "已有抓取任务进行中，请稍候"}
+            # force 且旧任务仍在跑：拒绝启动第二个线程，避免双线程竞争写同一报告
+            return {"ok": False, "error": "上一个抓取任务仍在进行中，请等它完成后再试"}
         accounts = mstore.load_accounts(data_dir)
         if not accounts:
             return {"ok": False, "error": "监控列表为空，请先添加对标账号"}
         _reset_state(len(accounts))
         t = threading.Thread(
-            target=_run_fetch_job, args=(data_dir, output_dir, list(accounts)), daemon=True
+            target=_run_fetch_job,
+            args=(data_dir, output_dir, list(accounts), api_config or {}),
+            daemon=True,
         )
         t.start()
         return {"ok": True, "total": len(accounts)}
 
 
-def _run_fetch_job(data_dir: str, output_dir: str, accounts: list):
+# 对标监控「24h 自动抓取」标记文件：记录上次自动抓取时间，每天第一次打开软件自动抓一次。
+_MONITOR_AUTO_FILE = "monitor_auto_fetch.json"
+_MONITOR_AUTO_INTERVAL = 24 * 3600  # 24 小时
+
+
+def _read_monitor_auto(output_dir: str) -> float:
+    try:
+        p = os.path.join(output_dir, _MONITOR_AUTO_FILE)
+        with open(p, encoding="utf-8") as f:
+            return float(json.load(f).get("last", 0) or 0)
+    except Exception:
+        return 0.0
+
+
+def _write_monitor_auto(output_dir: str, ts: float) -> None:
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        p = os.path.join(output_dir, _MONITOR_AUTO_FILE)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"last": ts}, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def auto_start_fetch(data_dir: str, output_dir: str,
+                     api_config: dict | None = None) -> dict:
+    """软件启动时调用：若距上次自动抓取 >= 24h 且有监控账号，则自动抓一次（每账号 top10 高赞对比）。"""
+    with _lock:
+        if _fetch_state["running"]:
+            return {"ok": False, "skipped": "已有抓取任务进行中"}
+        accounts = mstore.load_accounts(data_dir)
+        if not accounts:
+            return {"ok": False, "skipped": "监控列表为空"}
+    last = _read_monitor_auto(output_dir)
+    now = time.time()
+    if last and (now - last) < _MONITOR_AUTO_INTERVAL:
+        return {"ok": False, "skipped": "24h 周期未到"}
+    _write_monitor_auto(output_dir, now)
+    return start_fetch(data_dir, output_dir, force=False, api_config=api_config)
+
+
+def _run_fetch_job(data_dir: str, output_dir: str, accounts: list, api_config: dict | None = None):
+    api_config = api_config or {}
     def on_progress(done: int, total: int, current: str):
         with _lock:
             _fetch_state["progress"] = {"done": done, "total": total, "current": current}
 
+    if _task_log is not None:
+        _task_log.write(output_dir, "monitor_fetch", "fetch", "begin", total=len(accounts))
     try:
         results = mfetch.fetch_accounts_videos(accounts, on_progress=on_progress)
         # 逐账号：回填资料 + 读上一份快照 -> 对比 -> 落新快照（供「更新X条视频」）
@@ -174,33 +255,77 @@ def _run_fetch_job(data_dir: str, output_dir: str, accounts: list):
                 )
                 mstore.save_account_snapshot(output_dir, acc_id, snap)
         report = mtopics.build_report(results)
-        # 预拉榜单视频字幕，点开弹窗即可直接显示（无需再异步拉取）
+        # 预拉榜单视频文案（字幕优先 + ASR 兜底），点开弹窗即可直接显示。
+        # 传入 api_config（供 ASR 纠错），并重置进度标记让本轮全部处理。
         try:
-            n_sub = preload_subtitles(output_dir, report, {})
-            if n_sub:
-                print(f"[monitor] 已预存 {n_sub} 条视频字幕")
+            mark = os.path.join(mstore.report_dir(output_dir), "preload_progress.json")
+            if os.path.isfile(mark):
+                try:
+                    os.remove(mark)
+                except OSError:
+                    pass
         except Exception as e:  # noqa: BLE001
-            print(f"[monitor] 预存字幕失败（不影响主流程）: {e}")
+            print(f"[monitor] 清理预加载进度标记失败: {e}")
+        try:
+            n_sub = preload_subtitles(output_dir, report, api_config)
+            if n_sub:
+                print(f"[monitor] 已预加载 {n_sub} 条视频文案")
+        except Exception as e:  # noqa: BLE001
+            print(f"[monitor] 预加载文案失败（不影响主流程）: {e}")
         md = mtopics.build_markdown(report)
         path = mstore.save_report(output_dir, report, md)
         _fetch_state["report"] = report
         _finish_state()
+        if _task_log is not None:
+            _task_log.write(output_dir, "monitor_fetch", "fetch", "success",
+                            accounts=report.get("account_count"),
+                            videos=report.get("total_videos"))
         print(f"[monitor] 抓取完成: {report['account_count']} 账号, "
               f"{report['total_videos']} 视频 -> {path}")
     except Exception as e:  # noqa: BLE001
         print(f"[monitor] 抓取异常: {e}")
         _finish_state(error=str(e))
+        if _task_log is not None:
+            _task_log.write(output_dir, "monitor_fetch", "fetch", "error",
+                            error=_task_log.error_text(e))
 
 
 def get_status() -> dict:
     with _lock:
-        return {"ok": True, "state": dict(_fetch_state, progress=dict(_fetch_state["progress"]))}
+        progress = dict(_fetch_state["progress"])
+        # 明确口径：done = fetched_count（已抓完的账号数），total = total_count（账号总数）。
+        # 「已抓 X/总数 Y」= fetched_count/total_count；注意 progress.done 是「已完成数」，
+        # 抓取过程中最后一个账号未完成前 done 会小于 total，完成后才等于 total。
+        progress["fetched_count"] = progress.get("done", 0)
+        progress["total_count"] = progress.get("total", 0)
+        return {"ok": True, "state": dict(_fetch_state, progress=progress)}
+
+
+def _rel_time(ts: str) -> str:
+    """把 'YYYY-MM-DD HH:MM:SS' 转成「X 分钟前/X 小时前」的可读快照时间。"""
+    import datetime as _dt
+    try:
+        t = _dt.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+        delta = _dt.datetime.now() - t
+        secs = max(0, int(delta.total_seconds()))
+        if secs < 60:
+            return "刚刚"
+        if secs < 3600:
+            return f"{secs // 60} 分钟前"
+        if secs < 86400:
+            return f"{secs // 3600} 小时前"
+        return f"{secs // 86400} 天前"
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def get_report(output_dir: str) -> dict:
     report = _fetch_state.get("report") or mstore.load_latest_report(output_dir)
     if report is None:
         return {"ok": True, "report": None}
+    # 快照时间戳：让用户一眼知道数据新鲜度（蝉妈妈/新榜范式：数据可信度来自时间透明）
+    if report.get("fetched_at"):
+        report["fetched_at_rel"] = _rel_time(str(report.get("fetched_at")))
     return {"ok": True, "report": report}
 
 
@@ -299,17 +424,20 @@ def get_video_transcript(output_dir: str, aweme_id: str, api_config: dict) -> di
 
 
 def preload_subtitles(output_dir: str, report: dict, api_config: dict) -> int:
-    """抓取完成后，为榜单里的每条视频预拉一次详情、提取「视频自带字幕」。
+    """为榜单里的每条视频预拉文案（字幕优先，无字幕则 ASR 转写）。
 
-    只做字幕（接口现成、快，不下载视频、不做 ASR 转写），把字幕文本塞进
-    report 里各视频对象的 `transcript` 字段，前端点开弹窗即可直接显示，
-    无需再走「正在获取…」的异步拉取。无字幕的视频不塞（前端会兜底转写）。
+    把文案塞进 report 各视频对象的 `transcript` 字段，前端点开弹窗即可直接显示，
+    无需再走「正在获取…」的异步拉取。
 
-    返回成功预存字幕的视频条数。
+    支持断点续跑：进度写入 output/monitor/preload_progress.json，软件中途关闭后
+    下次启动可继续未完成的部分。
+
+    返回成功预存文案的视频条数。
     """
     import extract_server as ex
+    import asr_server as asr
 
-    if ex.MOCK or os.environ.get("WB_MONITOR_MOCK", "") == "1":
+    if ex.MOCK or asr.MOCK or os.environ.get("WB_MONITOR_MOCK", "") == "1":
         return 0
     if not ex.F2_AVAILABLE:
         return 0
@@ -318,6 +446,7 @@ def preload_subtitles(output_dir: str, report: dict, api_config: dict) -> int:
     if not cookie:
         return 0
     kwargs = ex._build_kwargs(cookie)
+    asr_key = asr._load_key(output_dir)
 
     # 收集需要预拉的视频（高赞榜 + 各账号 top），按 aweme_id 去重
     videos_by_id = {}
@@ -331,21 +460,185 @@ def preload_subtitles(output_dir: str, report: dict, api_config: dict) -> int:
             if vid and vid not in videos_by_id:
                 videos_by_id[vid] = v
 
+    # 断点续跑：读取上次已成功/失败的 aweme_id，跳过
+    mark_path = os.path.join(mstore.report_dir(output_dir), "preload_progress.json")
+    done_set = set()
+    try:
+        with open(mark_path, encoding="utf-8") as f:
+            done_set = set(json.load(f).get("done", []))
+    except Exception:
+        done_set = set()
+
+    # 进度回调（落盘 + 打印），供启动续跑判断
+    def _persist():
+        try:
+            with open(mark_path, "w", encoding="utf-8") as f:
+                json.dump({"done": sorted(done_set)}, f, ensure_ascii=False)
+        except Exception:
+            pass
+
     loaded = 0
-    for vid, v in videos_by_id.items():
+    total = len(videos_by_id)
+    with _lock:
+        _preload_state.update({
+            "running": True,
+            "done": 0,
+            "total": total,
+            "current": "",
+            "current_aweme_id": "",
+            "success": 0,
+            "started_at": time.time(),
+            "finished_at": None,
+        })
+    for idx, (vid, v) in enumerate(videos_by_id.items()):
+        if vid in done_set:
+            continue  # 已处理过，跳过（续跑）
+        # 记录当前正在加载的视频（前端据此显示「正在加载文案…」）
+        cur_desc = (v.get("desc") or "").strip() or "（无文字视频）"
+        with _lock:
+            _preload_state["current"] = cur_desc
+            _preload_state["current_aweme_id"] = vid
         try:
             raw = asyncio.run(ex._fetch_detail(kwargs, vid))
         except Exception:
-            continue
-        sub_url = ex._extract_subtitle_url(raw)
-        if not sub_url:
-            continue
-        cues = ex._download_subtitle(sub_url)
-        text = ex._cues_to_text(cues)
-        if text and len(text) > 10:
-            v["transcript"] = {"text": text, "source": "字幕"}
+            # 详情抓取失败不记 done（下次补加载重试），仅记录进度
+            with _lock:
+                _preload_state["done"] += 1
+            _persist(); continue
+        # ① 字幕优先
+        text = ""
+        source = ""
+        try:
+            sub_url = ex._extract_subtitle_url(raw)
+            if sub_url:
+                cues = ex._download_subtitle(sub_url)
+                t = ex._cues_to_text(cues)
+                if t and len(t) > 10:
+                    text, source = t, "字幕"
+        except Exception as e:  # noqa: BLE001
+            print(f"[monitor] 字幕提取失败（转 ASR 兜底）: {e}")
+        # ② 无字幕 → ASR 转写（需 ASR Key + 下载视频抽音轨）
+        if not text and asr_key:
+            try:
+                urls = asr._pick_video_urls(raw)
+                if urls:
+                    video_path, _sz, derr = asr._download_video(output_dir, urls, vid)
+                    if video_path:
+                        wav_path, aerr = asr._extract_audio(video_path)
+                        if wav_path:
+                            t, serr = asr._call_asr(asr_key, wav_path)
+                            if t:
+                                t = t.strip()
+                                try:
+                                    t = asr._llm_correct_text(t, api_config or {})
+                                except Exception:
+                                    pass
+                                if len(t) > 10:
+                                    text, source = t, "语音转写"
+                        # 清理中转文件
+                        for p in (video_path, os.path.splitext(video_path)[0] + ".wav"):
+                            try:
+                                if p and os.path.isfile(p):
+                                    os.remove(p)
+                            except OSError:
+                                pass
+            except Exception:
+                pass
+        if text:
+            v["transcript"] = {"text": text, "source": source}
             loaded += 1
+            with _lock:
+                _preload_state["success"] += 1
+            # 只有成功才记 done（断点续跑跳过）；失败的不记，下次补加载会重试
+            done_set.add(vid)
+        with _lock:
+            _preload_state["done"] += 1
+        if (idx + 1) % 5 == 0:
+            _persist()
+            print(f"[monitor] 预加载文案 {idx + 1}/{total}（累计成功 {loaded}）")
+    _persist()
+    with _lock:
+        _preload_state.update({
+            "running": False,
+            "current": "",
+            "current_aweme_id": "",
+            "finished_at": time.time(),
+        })
     return loaded
+
+
+def get_preload_status() -> dict:
+    """返回预加载文案进度，供前端轮询显示「某条视频文案正在加载」。"""
+    with _lock:
+        return {"ok": True, "preload": dict(_preload_state)}
+
+
+# 预加载文案标记文件：记录上次自动预加载进度（断点续跑用）
+_PRELOAD_MARK = os.path.join("monitor", "preload_auto.json")
+
+
+def _read_preload_auto(output_dir: str) -> dict:
+    try:
+        p = os.path.join(mstore.report_dir(output_dir), "preload_auto.json")
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _write_preload_auto(output_dir: str, data: dict) -> None:
+    try:
+        p = os.path.join(mstore.report_dir(output_dir), "preload_auto.json")
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def auto_preload_pending(output_dir: str, api_config: dict) -> dict:
+    """软件启动时调用：若距上次自动预加载 >= 24h，则把当前 report 里没有文案的视频
+    补预加载（字幕/ASR）。返回 {ok, skipped, loaded}。
+    """
+    report = mstore.load_latest_report(output_dir)
+    if not report:
+        return {"ok": False, "skipped": "还没有 report"}
+    last = _read_preload_auto(output_dir).get("last", 0) or 0
+    now = time.time()
+    if last and (now - float(last)) < _MONITOR_AUTO_INTERVAL:
+        return {"ok": False, "skipped": "24h 周期未到"}
+    _write_preload_auto(output_dir, {"last": now})
+    # 用 report 的一份拷贝预加载，避免改到磁盘旧数据；加载结果仅作为「已跑」标记，
+    # 真正的 transcript 会由下一次 fetch 落盘 report 时带上。
+    import copy
+    rep_copy = copy.deepcopy(report)
+    n = preload_subtitles(output_dir, rep_copy, api_config)
+    if n:
+        # 把新预加载的文案写回磁盘 report，这样即使不重新抓取也能看到
+        try:
+            for v in report.get("top_videos", []) or []:
+                c = _find_in_copy(rep_copy, str(v.get("aweme_id", "")))
+                if c and c.get("transcript"):
+                    v["transcript"] = c["transcript"]
+            for b in report.get("account_top", []) or []:
+                for v in b.get("top", []) or []:
+                    c = _find_in_copy(rep_copy, str(v.get("aweme_id", "")))
+                    if c and c.get("transcript"):
+                        v["transcript"] = c["transcript"]
+            mstore.save_report(output_dir, report, mtopics.build_markdown(report))
+        except Exception as e:
+            print(f"[monitor] 回写预加载文案失败: {e}")
+    return {"ok": True, "loaded": n}
+
+
+def _find_in_copy(copy_report: dict, aweme_id: str) -> dict | None:
+    for v in copy_report.get("top_videos", []) or []:
+        if str(v.get("aweme_id", "")) == aweme_id:
+            return v
+    for b in copy_report.get("account_top", []) or []:
+        for v in b.get("top", []) or []:
+            if str(v.get("aweme_id", "")) == aweme_id:
+                return v
+    return None
 
 
 def _mock_transcript(output_dir: str, aweme_id: str) -> dict:

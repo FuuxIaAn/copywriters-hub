@@ -22,6 +22,7 @@ import time
 import wave
 import math
 import random
+import uuid
 
 _THIS = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_THIS)
@@ -112,9 +113,12 @@ def save_settings(output_dir: str, token: str, backend: str = "") -> dict:
         s["backend"] = backend if backend in ("auto", "modelscope", "local") else "auto"
     else:
         s.pop("backend", None)
-    s["token"] = token
+    # token 为空时保留已有 token：前端输入框留空 = 保持不变。
+    # 如果要彻底删除 token，应提供明确的删除接口，避免用户只改后端时误清 token。
+    if token:
+        s["token"] = token
     _write_json(os.path.join(_dir(output_dir), "settings.json"), s)
-    return {"ok": True, "has_token": bool(token),
+    return {"ok": True, "has_token": bool(s.get("token")),
             "backend": _load_backend(output_dir)}
 
 
@@ -175,6 +179,7 @@ def _error_category(error) -> tuple[str, bool]:
     if any(x in combined for x in (
         "timeout", "timed out", "ssl", "handshake", "connection", "reset by peer",
         "temporar", "dns", "name resolution", "502", "503", "504", "429", "remote disconnected",
+        "expecting value", "jsondecode", "empty response", "no response", "eof",
     )):
         return "网络或服务暂时不可用", True
     return "服务返回异常", False
@@ -231,43 +236,114 @@ def _local_index_tts_ready() -> bool:
 
 
 def _gpu_busy_threshold() -> float:
-    """auto 模式下「GPU 是否忙到会导致卡顿」的显存占用阈值（百分比）。
-    当本地显存已用 > 此阈值，认为本地推理会明显卡顿 → 自动走外部。"""
+    """auto 模式下「GPU 显存占用到多少%视为忙」的阈值。
+    本地 IndexTTS 推理约需 5GB 显存；剩余太少会触发换页/卡顿。
+    """
     return float(os.environ.get("WB_TTS_GPU_BUSY", "70"))
+
+
+def _gpu_util_busy_threshold() -> float:
+    """auto 模式下「GPU 实时利用率到多少%视为忙到会让用户卡顿」的阈值。
+    用户当前正在用 GPU 跑别的事（游戏/剪辑/其他模型）时，再开本地 TTS 会抢算力掉帧。
+    默认 75%：超过则判定「本机此时跑本地 TTS 会让你手头卡」→ 改走云端。"""
+    return float(os.environ.get("WB_TTS_GPU_UTIL", "75"))
 
 
 def _local_backend_ok(output_dir: str) -> bool:
     """auto 模式下判断是否真的适合走本地推理：
-    1) 本地 IndexTTS 必须就绪；
-    2) 若 GPU 显存已被占满（>阈值），本地推理会明显卡顿 → 判定不适合，改走外部。
+    1) 本地 IndexTTS 必须就绪（venv + CLI + 模型齐备）；
+    2) 检查 GPU 实时压力，判断「现在开本地 TTS 会不会让我感到卡顿」——
+       任何一项命中都视为不适合本地，改走 ModelScope 云端：
+       a) GPU 显存已用占比 > 显存阈值（默认 70%）；
+       b) 剩余显存 < 1.5GB（本地推理最低需求）；
+       c) GPU 实时利用率 > 利用率阈值（默认 75%）——你正在用 GPU 干别的，本地会掉帧卡顿。
     返回 True 表示用本地，False 表示应走外部（modelscope）。"""
     if not _local_index_tts_ready():
         return False
-    # GPU 占用检测：本地推理需要 ~5GB 显存，若剩余太少会卡顿
+    # GPU 压力检测（显存 + 实时利用率）
     try:
         gpu = _gpu_info()
-        if gpu.get("ok") and gpu.get("vram_gb") and gpu.get("vram_free_gb") is not None:
-            used_pct = (1 - gpu["vram_free_gb"] / gpu["vram_gb"]) * 100
-            busy = _gpu_busy_threshold()
-            # 本地推理需约 5GB；若剩余 < 1.5GB 或占用 > 阈值 → 会卡，走外部
-            if used_pct > busy or gpu["vram_free_gb"] < 1.5:
-                print(f"[tts] auto 检测到 GPU 占用高（已用 {used_pct:.0f}%，剩余 {gpu['vram_free_gb']:.1f}GB），"
-                      f"为避免卡顿改走外部在线推理")
+        if gpu.get("ok"):
+            vram_th = _gpu_busy_threshold()
+            util_th = _gpu_util_busy_threshold()
+            used_pct = (1 - gpu["vram_free_gb"] / gpu["vram_gb"]) * 100 if gpu.get("vram_gb") else 0
+            reasons = []
+            if used_pct > vram_th:
+                reasons.append(f"显存已用 {used_pct:.0f}% > 阈值 {vram_th:.0f}%")
+            if gpu.get("vram_free_gb", 0) < 1.5:
+                reasons.append(f"剩余显存 {gpu['vram_free_gb']:.1f}GB < 1.5GB（本地推理最低需求）")
+            util = gpu.get("util_pct", 0)
+            if util > util_th:
+                reasons.append(f"GPU 实时利用率 {util:.0f}% > 阈值 {util_th:.0f}%（你正在用 GPU 干别的，本地会掉帧卡顿）")
+            if reasons:
+                print(f"[tts] auto 判定本地会卡顿，改走 ModelScope 云端：{'；'.join(reasons)}")
                 return False
     except Exception:  # noqa: BLE001
+        # 检测异常时保守地按本地可走处理，宁可偶尔掉队列也别盲目全走云
         pass
     return True
 
 
+def _local_model_resident(output_dir: str, ttl: int = 1200) -> bool:
+    """本地模型「最近成功过」标志：20 分钟内本地合成成功过 → 机器能跑且模型加载路径有效。
+    CLI 是子进程模式（每次退出释放模型），本标志只作「最近成功、可再试」的加速信号。"""
+    try:
+        p = os.path.join(_dir(output_dir), "model_resident.json")
+        if not os.path.isfile(p):
+            return False
+        with open(p, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        ts = float(d.get("ts") or 0)
+        return (time.time() - ts) < ttl
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _mark_local_resident(output_dir: str) -> None:
+    """本地合成成功后写入常驻标志（供 auto 判断「最近能跑」）。"""
+    try:
+        p = os.path.join(_dir(output_dir), "model_resident.json")
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"ts": time.time()}, f)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _resolve_backend(output_dir: str) -> str:
-    """解析最终生效的推理后端。auto 模式下：本地就绪且 GPU 不忙 → local，否则 → modelscope。
-    优先级：环境变量 WB_TTS_BACKEND > settings.backend（auto 视为 auto）。"""
+    """解析最终生效的推理后端。auto 模式 = **卡顿感知**（老板 2026-08-24 明确要求）：
+    「判断新增生成音频会产生我使用上的卡顿，那么就让新增音频走在线」。
+
+    判定顺序：
+    1. 本地 IndexTTS 未就绪 → 在线（没得选）
+    2. GPU 忙（利用率 >70% 或显存占用 >80%）→ 在线（别抢我正在干活的显卡）
+    3. 本地最近成功过（20 分钟内标志）→ 本地（模型加载路径已打通，出结果快）
+    4. 否则（刚启动、无成功记录）→ 在线（避免让用户干等 5 分钟模型加载）
+
+    优先级：环境变量 WB_TTS_BACKEND > settings.backend（auto 视为 auto）。
+    本地失败仍会由 _synthesize_with_retry 自动回退在线。"""
     env = os.environ.get("WB_TTS_BACKEND", "").strip()
     backend = env or _load_backend(output_dir)
     if backend in ("local", "modelscope"):
         return backend
-    # auto：本地就绪且 GPU 空闲才本地，否则在线
-    return "local" if _local_backend_ok(output_dir) else "modelscope"
+    # auto：卡顿感知
+    if not _local_index_tts_ready():
+        return "modelscope"
+    try:
+        gpu = _gpu_info()
+        if gpu.get("ok"):
+            used_pct = (1 - gpu["vram_free_gb"] / gpu["vram_gb"]) * 100 if gpu.get("vram_gb") else 0
+            if used_pct > 80:
+                print(f"[tts] auto：显存占用 {used_pct:.0f}% > 80%，走在线避免卡顿")
+                return "modelscope"
+            if gpu.get("util_pct", 0) > 70:
+                print(f"[tts] auto：GPU 利用率 {gpu['util_pct']:.0f}% > 70%（你在用显卡干别的），走在线避免卡顿")
+                return "modelscope"
+    except Exception:  # noqa: BLE001
+        pass
+    if _local_model_resident(output_dir):
+        return "local"
+    # 刚启动无成功记录：走在线（本地首次要 5 分钟加载，不该让用户等）
+    return "modelscope"
 
 
 def _synthesize_with_retry(output_dir: str, ref_path: str, text: str, params: dict,
@@ -280,7 +356,17 @@ def _synthesize_with_retry(output_dir: str, ref_path: str, text: str, params: di
     # 后端决策：auto 自动本地/在线切换
     backend = _resolve_backend(output_dir)
     if backend == "local":
-        return _synthesize_local_index_tts(output_dir, ref_path, text, params, stage, cancelled, label)
+        # 本地失败（超时/模型加载异常/显存问题）自动回退在线，保证「生成总能出结果」。
+        # 连续多次本地推理时模型每次重新加载，偶发卡死（历史 1200s 超时教训），
+        # 快速失败（420s 上限）后切在线兜底，不再让用户干等。
+        try:
+            return _synthesize_local_index_tts(output_dir, ref_path, text, params, stage, cancelled, label)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[tts] 本地合成失败，自动回退 ModelScope 在线：{type(exc).__name__}: {str(exc)[:160]}")
+            _record_diagnostic(output_dir, operation=label, attempt=0, outcome="local_fallback",
+                               error_type=type(exc).__name__,
+                               elapsed=0, text_length=len(text))
+            stage("本地合成未成功，自动切换在线配音…")
     token = _load_token(output_dir)
     args = _build_args(ref_path, text, params["lang"], params["emo_mode"],
                        params["emo_vec"], params["emo_weight"], params["duration_factor"],
@@ -362,13 +448,19 @@ def _synthesize_with_retry(output_dir: str, ref_path: str, text: str, params: di
 
 
 def _gpu_info() -> dict:
-    """探测本机 GPU（NVIDIA）。返回 {name, vram_gb, vram_free_gb, driver, compute_cap, cuda}。"""
-    info = {"name": "", "vram_gb": 0, "vram_free_gb": 0, "driver": "", "compute_cap": "", "cuda": "", "ok": False}
+    """探测本机 GPU（NVIDIA）。返回 {name, vram_gb, vram_free_gb, util_pct, driver, compute_cap, cuda, ok}。
+
+    util_pct 是当前 GPU 实时利用率（0~100），用于 auto 模式下判断「本地跑 IndexTTS 是否会让我
+    手头的事卡顿」。如果此刻你已经在用 GPU（游戏 / 剪辑 / 别的模型推理），util_pct 会很高，
+    这时再启动本地 TTS 就会抢 GPU 算力造成掉帧 → auto 应当回退到 ModelScope 云端。
+    """
+    info = {"name": "", "vram_gb": 0, "vram_free_gb": 0, "util_pct": 0,
+            "driver": "", "compute_cap": "", "cuda": "", "ok": False}
     # 1) nvidia-smi 最可靠
     try:
         import subprocess
         out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,memory.total,memory.free,driver_version,compute_cap",
+            ["nvidia-smi", "--query-gpu=name,memory.total,memory.free,utilization.gpu,driver_version,compute_cap",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=10)
         if out.returncode == 0 and out.stdout.strip():
@@ -376,12 +468,13 @@ def _gpu_info() -> dict:
             info["name"] = parts[0] if len(parts) > 0 else ""
             info["vram_gb"] = round(float(parts[1]) / 1024, 1) if len(parts) > 1 and parts[1] else 0
             info["vram_free_gb"] = round(float(parts[2]) / 1024, 1) if len(parts) > 2 and parts[2] else 0
-            info["driver"] = parts[3] if len(parts) > 3 else ""
-            info["compute_cap"] = parts[4] if len(parts) > 4 else ""
+            info["util_pct"] = float(parts[3]) if len(parts) > 3 and parts[3] else 0
+            info["driver"] = parts[4] if len(parts) > 4 else ""
+            info["compute_cap"] = parts[5] if len(parts) > 5 else ""
             info["ok"] = bool(info["name"])
     except Exception:  # noqa: BLE001
         pass
-    # 2) torch cuda 兜底
+    # 2) torch cuda 兜底（拿不到 util_pct 时保持 0）
     try:
         import torch
         if torch.cuda.is_available():
@@ -397,10 +490,55 @@ def _gpu_info() -> dict:
     return info
 
 
+def _serve_queue_dir(output_dir: str) -> str:
+    """常驻合成服务的文件队列目录。"""
+    return os.path.join(_dir(output_dir), "serve_queue")
+
+
+def _serve_ready(output_dir: str) -> bool:
+    """常驻服务是否就绪（ready 文件存在且 pid 还活着）。"""
+    qdir = _serve_queue_dir(output_dir)
+    ready = os.path.join(qdir, "ready")
+    if not os.path.isfile(ready):
+        return False
+    try:
+        with open(ready, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        pid = int(d.get("pid") or 0)
+        if pid > 0:
+            import ctypes
+            h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+            if not h:
+                return False  # 进程没了
+            ctypes.windll.kernel32.CloseHandle(h)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _start_serve(output_dir: str) -> None:
+    """拉起常驻合成服务（后台，不阻塞）。模型加载完成会写 ready。"""
+    import subprocess
+    root = _local_install_root()
+    venv_py = _local_venv_python(root)
+    serve = os.path.join(root, "local_tts_serve.py")
+    qdir = _serve_queue_dir(output_dir)
+    os.makedirs(qdir, exist_ok=True)
+    if not os.path.isfile(serve):
+        raise RuntimeError("常驻合成服务脚本缺失：local_tts_serve.py")
+    logf = open(os.path.join(qdir, "serve.log"), "a", encoding="utf-8")
+    subprocess.Popen(
+        [venv_py, serve, "--queue", qdir, "--model", os.path.join(root, "model")],
+        stdout=logf, stderr=logf, creationflags=0x00000008,  # DETACHED_PROCESS：脱离父进程，常驻
+    )
+
+
 def _synthesize_local_index_tts(output_dir: str, ref_path: str, text: str, params: dict,
                                 stage, cancelled=lambda: False, label: str = "single") -> tuple[str, int]:
-    """本地 IndexTTS-2.5 推理（子进程模式）：exe 调用 E 盘独立 venv 里的
-    local_tts_cli.py 完成合成，避免把 torch/IndexTTS 打进 exe。
+    """本地 IndexTTS-2.5 推理（常驻服务模式，2026-08 提速改造）：
+    - 首次：拉起 local_tts_serve.py 常驻进程（模型加载一次 ~4-5 分钟），之后每个任务秒级；
+    - 服务 15 分钟无任务自动退出释放显存；
+    - 服务不可用时自动回退单发 CLI 子进程（老路径，慢但可用）。
     返回 (wav 路径, 尝试次数)。"""
     import subprocess
     stage("本地 IndexTTS 推理…")
@@ -415,9 +553,6 @@ def _synthesize_local_index_tts(output_dir: str, ref_path: str, text: str, param
             "本地 IndexTTS 未就绪。请先在 E:\\indextts 完成安装（IndexTTS 独立环境 + 下载模型）。\n"
             f"当前显卡：{gpu_txt}"
         )
-    # 参数序列化到临时 json，避免命令行长度/编码问题。
-    # 全部对齐在线模式 _build_args 的音频规则（emo_text 情绪、40 分词、采样参数），
-    # 使本地推理与在线 ModelScope 产出一致，规则全部内置到本地。
     payload = {
         "ref_path": ref_path,
         "text": text,
@@ -430,21 +565,73 @@ def _synthesize_local_index_tts(output_dir: str, ref_path: str, text: str, param
         "top_p": 0.9, "top_k": 30, "temperature": 0.5,  # 音色还原优先
         "interval_silence": 200,
     }
+    out_wav = os.path.join(_dir(output_dir, "audio"), f"local_{uuid.uuid4().hex[:8]}.wav")
+    # ---- 常驻服务路径 ----
+    try:
+        if not _serve_ready(output_dir):
+            stage("启动常驻配音引擎（首次加载模型约 3-5 分钟，之后每条秒级）…")
+            _start_serve(output_dir)
+            # 等 ready（模型加载完）
+            t0 = time.monotonic()
+            while not _serve_ready(output_dir):
+                if cancelled():
+                    raise RuntimeError("已取消")
+                if time.monotonic() - t0 > 600:
+                    raise RuntimeError("常驻引擎加载超时（600 秒）")
+                time.sleep(2.0)
+        stage("常驻引擎已就绪，投递合成任务…")
+        qdir = _serve_queue_dir(output_dir)
+        task_id = uuid.uuid4().hex[:8]
+        task_path = os.path.join(qdir, f"task_{task_id}.json")
+        payload["out"] = out_wav
+        with open(task_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        res_path = os.path.join(qdir, f"result_{task_id}.json")
+        t1 = time.monotonic()
+        while not os.path.isfile(res_path):
+            if cancelled():
+                raise RuntimeError("已取消")
+            if time.monotonic() - t1 > 900:
+                raise RuntimeError("常驻引擎合成超时（900 秒）")
+            time.sleep(0.5)
+        with open(res_path, "r", encoding="utf-8") as f:
+            res = json.load(f)
+        try:
+            os.remove(res_path)
+        except OSError:
+            pass
+        if res.get("ok") and os.path.isfile(out_wav):
+            _mark_local_resident(output_dir)
+            stage(f"本地合成完成（{res.get('elapsed', '?')}s）")
+            return out_wav, 1
+        raise RuntimeError(f"常驻引擎合成失败：{res.get('error', '未知')[:300]}")
+    except Exception as exc:  # noqa: BLE001
+        # 常驻路径失败 → 回退单发 CLI（老路径）。但若是「已取消」，不降级。
+        if str(exc) == "已取消":
+            raise
+        print(f"[tts] 常驻服务合成失败，回退单发 CLI：{type(exc).__name__}: {str(exc)[:160]}")
+        return _synthesize_local_cli_fallback(output_dir, venv_py, cli, payload, out_wav, stage)
+
+
+def _synthesize_local_cli_fallback(output_dir: str, venv_py: str, cli: str, payload: dict,
+                                   out_wav: str, stage) -> tuple[str, int]:
+    """老路径：单发 CLI 子进程（慢，作为常驻服务不可用时的兜底）。"""
+    import subprocess
     payload_path = os.path.join(_dir(output_dir, "audio"), f"local_task_{uuid.uuid4().hex[:8]}.json")
     with open(payload_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False)
-    out_wav = os.path.join(_dir(output_dir, "audio"), f"local_{uuid.uuid4().hex[:8]}.wav")
     try:
-        stage("调用本地 IndexTTS 合成（首次加载模型较慢）…")
+        stage("常驻引擎不可用，改用单发模式（首次加载模型较慢）…")
         proc = subprocess.run(
             [venv_py, cli, "--payload", payload_path, "--out", out_wav],
-            capture_output=True, text=True, encoding="utf-8", timeout=1200,
+            capture_output=True, text=True, encoding="utf-8", timeout=900,
         )
         if proc.returncode != 0:
             err = (proc.stderr or "").strip() or (proc.stdout or "").strip() or "未知错误"
             raise RuntimeError(f"本地 IndexTTS 合成失败：{err[-500:]}")
         if not os.path.isfile(out_wav):
             raise RuntimeError("本地 IndexTTS 未产出音频文件")
+        _mark_local_resident(output_dir)   # 本地成功：写常驻标志（auto 卡顿感知用）
         return out_wav, 1
     finally:
         try:
@@ -826,7 +1013,10 @@ def _build_args(ref_path: str, text: str, lang: str, emo_mode: str,
                 emo_vec: list, emo_weight: float, duration_factor: float,
                 emo_random: bool = False, emo_text: str = "") -> list:
     """按官方 webui.py gen_single 的输入顺序构造 20 个参数（15 显式 + 8 vec 展开 + 高级参数用官方默认值）。
-    emo_mode 是中文字符串（"与音色参考音频相同"/"使用情感向量控制"），见 EMO_MODE_* 常量。"""
+    emo_mode 最终必须是中文字符串（"与音色参考音频相同"/"使用情感向量控制"），见 EMO_MODE_* 常量。
+    这里做一层映射兜底：调用方可能传英文键（same/auto/vector），统一转中文，
+    否则 ModelScope 直接拒绝（历史 bug：'same' 未映射 → 100% 失败）。"""
+    emo_mode = EMO_MODES.get(emo_mode, emo_mode)
     try:
         from gradio_client import handle_file
         prompt = handle_file(ref_path)

@@ -232,12 +232,14 @@ def _analyze_speech_style(speaker: str, samples_text: str, profile_text: str, ap
     )
     try:
         from openai import OpenAI
-        client = OpenAI(base_url=api_config["base_url"], api_key=api_config["api_key"])
+        client = OpenAI(base_url=api_config["base_url"], api_key=api_config["api_key"],
+                        timeout=60, max_retries=1)
         resp = client.chat.completions.create(
             model=api_config.get("model", "deepseek-chat"),
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=1500,
+            timeout=60,
         )
         raw = (resp.choices[0].message.content or "").strip()
         # 剥掉可能的 ```json 围栏

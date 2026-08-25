@@ -151,6 +151,7 @@ async def _fetch_user_posts(kwargs: dict, sec_user_id: str, count: int = 10) -> 
                 "comment_count": stats.get("comment_count") or 0,
                 "play_count": stats.get("play_count") or 0,
                 "share_count": stats.get("share_count") or 0,
+                "collect_count": stats.get("collect_count") or 0,
                 # 视频直链（供 ASR 兜底转录口播，免二次抓详情）
                 "video_url": _extract_video_url(raw[i] if i < len(raw) else {}),
                 # 全部可下载候选（多来源兜底：列表接口 play_addr 可能过期/为空，
@@ -472,6 +473,7 @@ def _weibo_fetch_videos(uid: str, cookie: str, count: int = 10) -> list:
                     "comment_count": mblog.get("comments_count") or 0,
                     "play_count": (page_info.get("play_count") or 0),
                     "share_count": mblog.get("reposts_count") or 0,
+                    "collect_count": 0,  # 微博接口无收藏字段，补零保持四维结构一致
                     "video_url": video_url,
                     "_platform": "weibo",
                 }
@@ -533,9 +535,15 @@ def fetch_accounts_videos(
     """批量抓取多个账号，带限速与进度回调。
     accounts: [{home_url, note, douyin_id, platform}...]
     返回 [{home_url, note, ok, account, videos, error}...]
+
+    每个账号按「近期作品里点赞最高的前 count 条」返回：先抓取更多候选
+    （近期 fetch_count 条），再按 digg_count 降序取前 count 条，保证榜单
+    聚焦高赞作品（而非单纯按时间排序）。
     """
     results = []
     total = len(accounts)
+    # 抓取更多候选（近期作品），再按点赞挑 top count
+    fetch_count = max(count * 2, 20)
     for idx, acc in enumerate(accounts):
         start = time.time()
         if on_progress:
@@ -546,13 +554,20 @@ def fetch_accounts_videos(
         if not platform and "weibo" in (home_url or "").lower():
             platform = "weibo"
         if platform == "weibo":
-            r = fetch_user_videos_weibo(home_url, count=count)
+            r = fetch_user_videos_weibo(home_url, count=fetch_count)
         else:
-            r = fetch_user_videos(home_url, count=count)
+            r = fetch_user_videos(home_url, count=fetch_count)
         r["note"] = acc.get("note", "")
         r["douyin_id"] = acc.get("douyin_id", "")
         r["home_url"] = home_url
         r["_account_id"] = acc.get("id", "")  # 供「我的账号」按账号归档快照
+        # 透传已存储的昵称：抓取失败时 build_report 也能显示真实昵称而非整条 URL
+        r["stored_nickname"] = acc.get("nickname", "") or ""
+        # 按点赞降序取前 count 条（最高赞优先）
+        if r.get("ok"):
+            vs = r.get("videos") or []
+            vs.sort(key=lambda x: x.get("digg_count", 0), reverse=True)
+            r["videos"] = vs[:count]
         results.append(r)
         # 限速：真实抓取时每个账号间隔随机 1.5~3.5s（mock 不延时）
         if not MOCK_MODE and idx < total - 1:

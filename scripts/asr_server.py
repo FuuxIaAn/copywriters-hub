@@ -326,18 +326,21 @@ def _resolve_weibo_video(share_url: str) -> tuple:
     return video_url, title, ""
 
 
-def _download_video(output_dir: str, urls: list, aweme_id: str, on_progress=None) -> tuple:
+def _download_video(output_dir: str, urls: list, aweme_id: str, on_progress=None,
+                    headers: dict | None = None) -> tuple:
     """流式下载到 output/extract/audio/<aweme_id>.mp4，返回 (path, size, error)。
 
     on_progress(done, total)：每下载一块回调一次字节进度，total 来自 Content-Length。
+    headers：覆盖默认请求头（如微博视频需 weibo.com referer + 登录 cookie）。
     """
     audio_dir = os.path.join(output_dir, "extract", "audio")
     os.makedirs(audio_dir, exist_ok=True)
     path = os.path.join(audio_dir, f"{aweme_id}.mp4")
     last_err = ""
+    dl_headers = headers or _DOWNLOAD_HEADERS
     for url in urls:
         try:
-            with httpx.stream("GET", url, headers=_DOWNLOAD_HEADERS, timeout=120, follow_redirects=True) as r:
+            with httpx.stream("GET", url, headers=dl_headers, timeout=25, follow_redirects=True) as r:
                 if r.status_code != 200:
                     last_err = f"下载失败 HTTP {r.status_code}"
                     continue
@@ -450,7 +453,7 @@ def _call_asr(api_key: str, audio_path: str) -> tuple:
             # hotwords 提升命理领域专有名词识别精准度（SenseVoice 支持热词）
             data = {"model": ASR_MODEL, "hotwords": METAPHYSICS_HOTWORDS}
             headers = {"Authorization": f"Bearer {api_key}"}
-            with httpx.Client(timeout=600) as client:
+            with httpx.Client(timeout=120) as client:
                 resp = client.post(ASR_API, headers=headers, files=files, data=data)
     except Exception as e:
         return "", f"转写请求失败: {e}"
@@ -502,12 +505,14 @@ def _llm_correct_text(text: str, api_config: dict) -> str:
         return text
     try:
         from openai import OpenAI
-        client = OpenAI(base_url=api_config["base_url"], api_key=api_config["api_key"])
+        client = OpenAI(base_url=api_config["base_url"], api_key=api_config["api_key"],
+                        timeout=120, max_retries=1)
         resp = client.chat.completions.create(
             model=api_config.get("model", "deepseek-chat"),
             messages=[{"role": "user", "content": _LLM_CORRECT_PROMPT + text}],
             temperature=0.1,
             max_tokens=8192,
+            timeout=120,
         )
         corrected = (resp.choices[0].message.content or "").strip()
         # 兜底：LLM 返回为空或异常短就丢弃，保留原文

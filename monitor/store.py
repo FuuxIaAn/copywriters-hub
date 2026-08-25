@@ -216,17 +216,21 @@ def build_compare(account_id: str, account: dict, videos: list, prev_snapshot: d
 
 
 def load_account_new_count(output_dir: str, account_id: str) -> dict:
-    """读取某账号最新快照，返回 {new_count, has_base, fetched_at}。
+    """读取某账号最新快照，返回 {new_count, has_base, fetched_at, fetched_count}。
 
-    没有快照（从未抓取）时 new_count 为 None，前端显示「尚未抓取」。
+    口径说明：
+      - fetched_count = 最近一次抓取实际入库的视频条数（快照 video_count，即「已抓」分子）；
+      - new_count    = 相对上一份快照新增的条数（无基准则等于 fetched_count）；
+      - 没有快照（从未抓取）时 fetched_count/new_count 均为 None，前端显示「尚未抓取」。
     """
     snap = load_latest_snapshot(output_dir, account_id)
     if snap is None:
-        return {"new_count": None, "has_base": False, "fetched_at": None}
+        return {"new_count": None, "has_base": False, "fetched_at": None, "fetched_count": None}
     return {
         "new_count": snap.get("new_count"),
         "has_base": snap.get("has_base", False),
         "fetched_at": snap.get("fetched_at"),
+        "fetched_count": snap.get("video_count"),
     }
 
 

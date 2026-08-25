@@ -17,6 +17,11 @@ import os
 import re
 import threading
 
+try:
+    from _safe_io import atomic_write_json, safe_load_json
+except ImportError:
+    atomic_write_json = safe_load_json = None
+
 INSIGHT_FILENAME = "data_insights.json"
 MAX_BLACKLIST = 100          # 黑榜最多保留条数
 MAX_PRINCIPLES = 60          # 原则建议最多保留条数
@@ -35,6 +40,8 @@ def _now() -> str:
 
 def load(output_dir: str) -> dict:
     path = insight_path(output_dir)
+    if safe_load_json is not None:
+        return safe_load_json(path, {"blacklist": [], "principles": [], "attributions": [], "tracks": [], "updated_at": ""})
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -48,6 +55,11 @@ def save(output_dir: str, data: dict):
     data["updated_at"] = _now()
     path = insight_path(output_dir)
     os.makedirs(output_dir, exist_ok=True)
+    if atomic_write_json is not None:
+        if not atomic_write_json(path, data):
+            print(f"[insight] 保存数据洞察失败: {path}")
+            return ""
+        return path
     try:
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -71,7 +83,8 @@ def update(output_dir: str, fn):
 # ---------- 黑榜 ----------
 
 def add_blacklist(output_dir: str, items: list):
-    """批量写入句子级黑榜。items: [{sentence, agent, reason, rewrite, retention_drop}]"""
+    """批量写入句子级黑榜。items: [{sentence, agent, reason, rewrite, retention_drop, remedy_text, verdict}]
+    verdict: first / pending / effective / ineffective（首次 vs 与历史手段留存对比）"""
     def _fn(data):
         for it in items or []:
             data.setdefault("blacklist", []).append({
@@ -80,12 +93,55 @@ def add_blacklist(output_dir: str, items: list):
                 "reason": (it.get("reason") or "")[:300],
                 "rewrite": (it.get("rewrite") or "")[:300],
                 "retention_drop": it.get("retention_drop", ""),
+                "remedy_text": (it.get("remedy_text") or "")[:300],
+                "history": it.get("history") or [],
+                "verdict": it.get("verdict") or "first",
                 "date": _now(),
             })
         if len(data["blacklist"]) > MAX_BLACKLIST:
             del data["blacklist"][:-MAX_BLACKLIST]
     update(output_dir, _fn)
 
+
+def find_focus_sentence(output_dir: str) -> dict | None:
+    """找历史黑榜里最新一条，作为复盘开场要讨论的那句。
+    复盘开场自动报「本次最低留存句子：XXX（留存率X%）」。"""
+    data = load(output_dir)
+    items = data.get("blacklist", [])
+    if not items:
+        return None
+    return items[-1]
+
+
+def update_blacklist_verdict(output_dir: str, sentence: str, retention_after,
+                              verdict: str, remedy_text: str = "") -> None:
+    """下次复盘对比留存后调用：把上一轮 verdict 写入 history 圆环。"""
+    def _fn(data):
+        for it in data.get("blacklist", []):
+            if it.get("sentence") == sentence:
+                history = list(it.get("history") or [])
+                history.append({
+                    "round": len(history) + 1,
+                    "remedy": remedy_text,
+                    "retention_after": retention_after,
+                    "verdict": verdict,
+                    "date": _now(),
+                })
+                it["history"] = history
+                it["verdict"] = verdict
+                it["remedy_text"] = remedy_text
+                return
+        data.setdefault("blacklist", []).append({
+            "sentence": sentence[:200],
+            "history": [{
+                "round": 1, "remedy": remedy_text,
+                "retention_after": retention_after, "verdict": verdict,
+                "date": _now(),
+            }],
+            "verdict": verdict,
+            "date": _now(),
+        })
+    update(output_dir, _fn)
 
 def blacklist_text(output_dir: str, max_chars: int = 4000) -> str:
     """黑榜文本（注入专家讨论 / 同类句子记忆用）。"""

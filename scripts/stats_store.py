@@ -14,6 +14,11 @@ import json
 import os
 import threading
 
+try:
+    from _safe_io import atomic_write_json, safe_load_json
+except ImportError:
+    atomic_write_json = safe_load_json = None
+
 STATS_FILENAME = "stats.json"
 VERDICT_WEIGHT = {"有效": 1.0, "部分有效": 0.5, "无效": 0.0}
 MAX_FEEDBACK_PER_EXPERT = 12      # 每位专家最多保留的正/负反馈条数
@@ -30,6 +35,8 @@ def stats_path(output_dir: str) -> str:
 
 def load_stats(output_dir: str) -> dict:
     path = stats_path(output_dir)
+    if safe_load_json is not None:
+        return safe_load_json(path, {"experts": {}, "scores": [], "score_accuracy": {}, "updated_at": ""})
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -42,6 +49,11 @@ def load_stats(output_dir: str) -> dict:
 def save_stats(output_dir: str, stats: dict):
     stats["updated_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     path = stats_path(output_dir)
+    if atomic_write_json is not None:
+        if not atomic_write_json(path, stats):
+            print(f"[stats] 保存统计失败: {path}")
+            return ""
+        return path
     try:
         # 先写临时文件再原子替换：进程崩溃/断电不会留下写一半的损坏文件
         tmp = path + ".tmp"

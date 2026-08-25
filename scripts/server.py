@@ -19,6 +19,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import sys
 import threading
 import time
@@ -50,6 +51,7 @@ from openai import OpenAI  # noqa: E402
 import stats_store  # noqa: E402
 import learn_store  # noqa: E402
 import works_store  # noqa: E402
+import task_log  # noqa: E402
 import skeleton_store  # noqa: E402
 import data_insight_store  # noqa: E402
 import skill_methods  # noqa: E402
@@ -117,6 +119,14 @@ def _friendly_error_text(value) -> str:
     return text[:500]
 
 
+def _safe_int(value, default: int) -> int:
+    """容错 int：前端传非法值（如 "abc"）时回退默认，避免 ValueError 500。"""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @app.errorhandler(413)
 def request_too_large(_error):
     return jsonify({"ok": False, "error": "上传文件超过 50MB 上限，请先压缩或裁剪后重试"}), 413
@@ -133,8 +143,8 @@ def _unhandled_error(error):
             f.write(f"--- {datetime.datetime.now():%Y-%m-%d %H:%M:%S} "
                     f"{request.method} {request.path} ---\n")
             f.write("".join(traceback.format_exception(error)) + "\n")
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        print(f"[server] 写 server_error.log 失败: {e}")
     return jsonify({"ok": False, "error": f"服务内部错误：{error}"}), 500
 
 
@@ -215,6 +225,25 @@ def load_config() -> dict:
     return config
 
 
+# 单专家知识档案（digest）的字符上限。
+# 原因：knowledge_digests/agent_*.md 有的高达 3.5 万字符，会被整体塞进 system prompt，
+# 再叠加 methods/lessons/feedback/context/persona 与洗稿原文，很容易撑爆模型输入 token 上限
+# （返回 400 input length too long）。大模型对超长知识档案的利用度边际递减，超长反而成为
+# 噪声和 token 炸弹。这里按安全上限截断，前端展示不受影响。
+_KNOWLEDGE_CAP_CHARS = 12000
+
+
+def _cap_knowledge(text: str, source: str = "") -> str:
+    """把知识档案压到安全长度，超长时取头部（知识档案是头部优先结构，结尾多为附录/历史）。"""
+    if not text:
+        return ""
+    if len(text) <= _KNOWLEDGE_CAP_CHARS:
+        return text
+    return text[:_KNOWLEDGE_CAP_CHARS] + (
+        f"\n\n[知识档案过长，已截断至 {_KNOWLEDGE_CAP_CHARS} 字符，其余 {len(text) - _KNOWLEDGE_CAP_CHARS} 字符已省略。]"
+    )
+
+
 def build_agents(config: dict) -> list:
     api = config["api"]
     max_chars = config["discussion"].get("max_context_chars", 20000)
@@ -228,7 +257,7 @@ def build_agents(config: dict) -> list:
         digest_path = os.path.join(BASE_DIR, digest_rel) if digest_rel else ""
         if digest_path and os.path.exists(digest_path):
             with open(digest_path, "r", encoding="utf-8") as f:
-                knowledge = f.read()
+                knowledge = _cap_knowledge(f.read(), acfg.get("name", ""))
             knowledge_source = "深度研读内化的个人知识档案"
         else:
             raw_path = acfg.get("knowledge_path") or ""
@@ -273,7 +302,7 @@ def build_single_agent(config: dict, agent_name: str):
             digest_path = os.path.join(BASE_DIR, digest_rel) if digest_rel else ""
             if digest_path and os.path.exists(digest_path):
                 with open(digest_path, "r", encoding="utf-8") as f:
-                    knowledge = f.read()
+                    knowledge = _cap_knowledge(f.read(), agent_name)
                 knowledge_source = "深度研读内化的个人知识档案"
             else:
                 raw_path = acfg.get("knowledge_path") or ""
@@ -314,6 +343,7 @@ class Session:
         self.work_id = ""          # 绑定的作品 id（口播工坊：讨论隶属于某个作品）
         self.work_title = ""       # 作品标题
         self.created_ts = time.time()
+        self.last_active_ts = time.time()   # 最近一次 push 事件时间（phase 看门狗用）
         self.phase = "idle"        # idle/discussion/score/review/learn（同一时刻只允许一个后台任务）
         self.phase_lock = threading.Lock()
         self.sid = ""              # 会话 id（创建后由 api_start 赋值）
@@ -337,6 +367,7 @@ class Session:
     def push(self, raw: dict):
         """推送事件：记录到 history + 入队（供 SSE 广播）。"""
         item = dict(raw)
+        self.last_active_ts = time.time()   # 有事件 = 任务还活着（phase 看门狗用）
         if item.get("type") == "error":
             item["text"] = _friendly_error_text(item.get("text"))
         if item.get("type") in ("message", "final", "review", "learn", "score", "retention", "score_roast", "debate", "principle_review"):
@@ -856,8 +887,8 @@ def _run_review(sid: str, data: str):
 
 def _retention_prompt(subtitle: str, retention: str, metrics: dict, adoptions: list,
                       context: str = "", standards: str = "", history_blacklist: str = "") -> str:
-    """组装数据专员句子级留存分析 prompt。metrics: 各项数据指标字典；adoptions: 采纳记录。
-    history_blacklist: 历史黑榜（同类句子记忆，用于对照判断有没有改善）。"""
+    """组装数据专员作品复盘 prompt（2026-08 改造：去掉"采纳了哪条建议"等洗稿语境，
+    改为纯粹基于指标+留存数据做归因——用户已发布作品，根本没有"采纳记录"概念）。"""
     ctx_block = (context or "").strip() or "（无特别说明）"
     # 各项数据指标
     metric_lines = []
@@ -868,45 +899,35 @@ def _retention_prompt(subtitle: str, retention: str, metrics: dict, adoptions: l
             metric_lines.append(f"- {k}：{v}")
     metrics_text = "\n".join(metric_lines) if metric_lines else "（用户未提供具体数据指标）"
 
-    # 采纳记录（用于判断黑榜句子是不是采纳了某位专家的建议）
-    adopt_lines = []
-    for i, a in enumerate(adoptions or [], 1):
-        adopt_lines.append(f"{i}. {a.get('name','')}（{a.get('round','')}）：{a.get('snippet','')}")
-    adopt_text = "\n".join(adopt_lines) if adopt_lines else "（暂无采纳记录）"
-
     standards_block = ("\n\n" + standards) if standards else ""
 
     history_block = ""
     if history_blacklist:
         history_block = (
-            "五、历史黑榜（同类句子记忆 · 你过去判定过的问题句子和当时的改写方向）。"
-            "本次字幕稿里如果出现了**同类型的句子**，必须对照这条历史结论："
-            "这次这类句子有没有用上「上次改写方向」？留存表现相比上次有没有改善？"
-            "把「同类句子改善追踪」作为第五部分输出。\n\n"
+            "五、历史黑榜（同类句子记忆 · 你过去判定过的问题句子类型）。"
+            "本次字幕稿里如果出现了**同类型的句子**，对照历史结论指出这种句子有没有再次出现（不需要追问是否采纳了某条建议）。\n\n"
             "【历史黑榜开始】\n" + history_blacklist + "\n【历史黑榜结束】\n\n"
         )
 
     return (
-        "创作背景（本账号的核心信息，分析留存表现时要结合目标受众判断）：\n"
+        "创作背景（结合目标受众判断留存表现）：\n"
         f"{ctx_block}\n\n"
         "【字数红线】整体文案应控制在 600 字以内（含标题）。\n\n"
-        "这是用户用终稿口播后得到的真实数据反馈。你的最终目标：**找出哪些句子导致留存流失、并定位到是否某位专家的建议导致的**，从而帮助提高播放量。\n\n"
-        "一、口播视频字幕稿（逐句，可能带时间戳，格式如「00:00:01,500 --> 00:00:02,133 放屁」——即「第几秒说了什么话」，请结合时间戳对照留存曲线定位是哪一秒、哪句话掉的留存）：\n\n"
+        "这是用户用终稿口播后得到的真实数据反馈。你的最终目标：**找出哪些句子导致留存流失、给出可执行的改进方向**，帮助提高下次播放量。\n\n"
+        "一、口播视频字幕稿（逐句，可能带时间戳，格式如「00:00:01,500 --> 00:00:02,133 放屁」——结合时间戳对照留存曲线定位是哪一秒、哪句话掉的留存）：\n\n"
         "【字幕稿开始】\n" + subtitle + "\n【字幕稿结束】\n\n"
         "二、观众留存数据（可能是数据点「0秒100%、5秒85%…」，也可能是趋势描述；若同时给了「同类作品留存曲线」，它就是**对标基准**，要拿来和「我的留存曲线」逐秒对比，判断哪一秒掉得比同类更狠）：\n\n"
         "【留存数据开始】\n" + (retention or "（用户未提供具体留存数据）") + "\n【留存数据结束】\n\n"
         "三、各项数据指标（2秒跳出率/5秒完播率/平均播放时长/平均播放占比/完播率/播放量等）：\n\n"
         "【数据指标开始】\n" + metrics_text + "\n【数据指标结束】\n\n"
-        "四、本次终稿的采纳记录（判断黑榜句子是不是采纳了某位专家建议的依据）：\n\n"
-        "【采纳记录开始】\n" + adopt_text + "\n【采纳记录结束】\n\n"
         + history_block
         + standards_block + "\n\n"
-        "请按你 persona 里的三层职责输出：\n"
+        "请按以下四层职责输出（**不要提任何「专家建议」「采纳建议」之类的话**——这是已发布的作品，不是写作过程）：\n"
         "一、数据判级：逐项数据 → 健康等级（优秀/良好/预警/危险）→ 一句话结论\n"
         "二、播放量归因：这条视频播放量高/低，主要是哪个数据指标导致的，为什么\n"
-        "三、句子级黑榜：按留存掉得最厉害排序，每句【第N句】/【原文】/【留存表现】/【诊断】/【是否某专家建议导致】/【改写方向】\n"
-        "四、给专家的原则性建议：2-3 条「下次写这类句子必须遵守的原则」\n"
-        + ("五、同类句子改善追踪：对照历史黑榜，指出本次出现的同类句子有没有改善（每句一句：改善了/没改善/不适用）\n" if history_block else "")
+        "三、句子级黑榜：按留存掉得最厉害排序，每句【第N句】/【原文】/【留存表现】/【问题诊断】/【改写方向】\n"
+        "四、可执行的改进建议：3-5 条「下次写/演这类内容必须注意的具体做法」（口语化、可执行，避免空话）\n"
+        + ("五、同类句子是否再次出现：对照历史黑榜，指出本次出现的同类句子是/否/不适用（每句一句）\n" if history_block else "")
         + "数据不足时明确说「现有数据不足以判断」，绝不编造具体留存数字。"
     )
 
@@ -2121,8 +2142,8 @@ def api_adopt():
     # 原则命中统计：采纳的建议若命中原则关键词，则 hits+1（原则库命中率依据）
     try:
         data_insight_store.count_principle_hits(OUTPUT_DIR, snippet)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        print(f"[server] 原则命中统计失败（不影响采纳）: {e}")
     adopt_no = works_store.add_adoption(OUTPUT_DIR, wid, {
         "name": name, "round": round_label, "snippet": snippet, "note": note,
     })
@@ -2835,8 +2856,8 @@ def api_score():
     # 原则命中统计：终稿包含原则关键词则 hits+1
     try:
         data_insight_store.count_principle_hits(OUTPUT_DIR, script)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        print(f"[server] 原则命中统计失败（不影响评分）: {e}")
     session.finished = False  # 任务接力：重开会话，避免 SSE 重连被「done」掐断
     t = threading.Thread(target=_run_score, args=(sid, script), daemon=True)
     t.start()
@@ -2960,6 +2981,7 @@ def api_import_metrics():
     subtitle = ""
     retention = ""
     warnings = []
+    uploaded = {}   # slot -> {name, size}：复制到 works_data/<wid>/ 后的文件清单
     for slot, path in files.items():
         if not path:
             continue
@@ -2992,9 +3014,15 @@ def api_import_metrics():
         except Exception as e:  # noqa: BLE001
             warnings.append(f"解析失败 {os.path.basename(path)}：{e}")
 
+    # 文件持久化：把原始文件复制到 output/works_data/<wid>/ 下保存（保留原始文件名前缀 + slot），
+    # 供日后复查原始数据；复制失败只告警，不影响指标落库。
+    uploaded = _persist_work_files(wid, files, warnings)
+
     # 落库：指标 + 字幕稿 + 留存曲线；状态从「发布前」推进到「已发布」
     if metrics:
         works_store.save_metrics(OUTPUT_DIR, wid, data_import.normalize_metrics(metrics))
+    if uploaded:
+        works_store.save_uploaded_files(OUTPUT_DIR, wid, uploaded)
     if subtitle:
         def _s(x):
             x["subtitle"] = subtitle
@@ -3023,25 +3051,70 @@ def api_import_metrics():
         "subtitle": subtitle,
         "retention": retention,
         "analysis_started": analysis_started,
+        "uploaded_files": uploaded,
         "warnings": warnings,
     })
 
 
+def _works_data_dir(wid: str) -> str:
+    """作品原始数据文件目录：output/works_data/<wid>/。"""
+    d = os.path.join(OUTPUT_DIR, "works_data", wid)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _persist_work_files(wid: str, files: dict, warnings: list) -> dict:
+    """把数据录入提交的原始文件复制到 works_data/<wid>/ 持久化。
+    目标文件名 = <slot>_<原始文件名>（保留原始文件名前缀，slot 防不同槽位同名覆盖）。
+    返回 {slot: {name, size}}；复制失败的 slot 跳过并追加告警。"""
+    uploaded = {}
+    for slot, path in (files or {}).items():
+        if not path or not isinstance(path, str) or not os.path.isfile(path):
+            continue
+        base = os.path.basename(path)
+        if not base:
+            continue
+        try:
+            size = os.path.getsize(path)
+            dest = os.path.join(_works_data_dir(wid), f"{slot}_{base}")
+            shutil.copyfile(path, dest)
+            uploaded[slot] = {"name": f"{slot}_{base}", "size": size}
+        except OSError as e:
+            warnings.append(f"文件保存失败 {base}：{e}")
+    return uploaded
+
+
 @app.route("/api/manual_metrics", methods=["POST"])
 def api_manual_metrics():
-    """手动录入作品数据指标（不选文件，直接在弹窗里填数值）。"""
+    """手动录入作品数据指标（不选文件，直接在弹窗里填数值）。
+    同时接受发布信息：published_at / video_url / platform / video_id（Q4 卡片发布时间+打开视频）。"""
     data = request.get_json(force=True, silent=True) or {}
     wid = (data.get("wid") or "").strip()
     metrics = data.get("metrics") or {}
     w = works_store.get(OUTPUT_DIR, wid)
     if not w:
         return jsonify({"ok": False, "error": "作品不存在"}), 404
-    if not isinstance(metrics, dict) or not metrics:
-        return jsonify({"ok": False, "error": "请至少填写一项指标"}), 400
+    if not isinstance(metrics, dict):
+        metrics = {}
+    # 发布信息（可选）；指标与发布信息至少一项
+    has_publish = any((data.get(k) or "").strip() for k in ("published_at", "video_url", "platform", "video_id"))
+    if not metrics and not has_publish:
+        return jsonify({"ok": False, "error": "请至少填写一项指标或发布信息"}), 400
     norm = data_import.normalize_metrics({k: v for k, v in metrics.items() if v not in (None, "")})
     works_store.save_metrics(OUTPUT_DIR, wid, norm)
-    works_store.update_work(OUTPUT_DIR, wid, lambda x: (
-        x.update({"status": "published"}) if x.get("status") in ("draft", "discussing", "to_adopt") else None))
+    # 发布信息（可选项，随同保存；只更新非空字段）
+    publish = {
+        "published_at": (data.get("published_at") or "").strip(),
+        "video_url": (data.get("video_url") or "").strip(),
+        "platform": (data.get("platform") or "").strip(),
+        "video_id": (data.get("video_id") or "").strip(),
+    }
+    def _upd(x):
+        x.update({"status": "published"} if x.get("status") in ("draft", "discussing", "to_adopt") else {})
+        for k, v in publish.items():
+            if v:
+                x[k] = v
+    works_store.update_work(OUTPUT_DIR, wid, _upd)
     return jsonify({"ok": True, "work": works_store.get(OUTPUT_DIR, wid)})
 
 
@@ -3073,6 +3146,86 @@ def api_works_batch():
     return jsonify({"ok": True, "done": done, "missing": missing})
 
 
+@app.route("/api/works/<wid>/review", methods=["POST"])
+def api_work_review(wid):
+    """复盘闭环入口：找出最低留存句子 + 历史手段对比 + 数据专员产出针对性 remedy。
+    用户 7 条验收标准：开场自动报最低留存句 / 讨论只针对这句 / 手段落盘 / 下次自动对比 / 无效删档案 / 首次不对比。"""
+    import data_insight_store
+    w = works_store.get(OUTPUT_DIR, wid)
+    if not w:
+        return jsonify({"ok": False, "error": "作品不存在"}), 404
+    if not w.get("subtitle"):
+        return jsonify({"ok": False, "error": "作品没有字幕稿，无法复盘"}), 400
+    # 1) 找历史黑榜最新一条 → 作为本次复盘 focus_sentence
+    focus = data_insight_store.find_focus_sentence(OUTPUT_DIR)
+    prev_remedy = ""
+    prev_round = 0
+    if focus and focus.get("history"):
+        prev_remedy = focus.get("remedy_text", "")
+        prev_round = len(focus.get("history", []))
+    # 2) 启动后台复盘（数据专员产出针对性 remedy + 历史对比）
+    def _run():
+        try:
+            subtitle = w.get("subtitle", "")
+            retention = w.get("retention", "") or ""
+            metrics = {k: v for k, v in (w.get("metrics") or {}).items() if v not in (None, "")}
+            ctx = "\n".join([f"- {v}" for v in (load_config().get("context") or {}).values() if v]).strip()
+            standards = _data_standards_text(load_config())
+            analyst = _build_data_analyst(load_config())
+            if analyst is None:
+                task_log.write(OUTPUT_DIR, "review", "focus", "error", error="无数据专员配置")
+                return
+            # 关键：用 focus_sentence 锁 prompt，只针对这句产出 remedy
+            focus_text = (focus or {}).get("sentence", "")
+            prompt = _review_focused_prompt(subtitle, retention, metrics, focus_text, prev_remedy, prev_round, ctx, standards)
+            reply = analyst.say([{"role": "user", "content": prompt}])
+            for prefix in (f"{analyst.name}：", f"{analyst.name}:"):
+                if reply.startswith(prefix):
+                    reply = reply[len(prefix):].strip()
+                    break
+            # 落盘：focus_sentence + focused_remedy + verdict
+            focused_remedy = _parse_focused_remedy(reply)
+            item = {
+                "sentence": focus_text,
+                "agent": analyst.name,
+                "reason": "",
+                "rewrite": focused_remedy,
+                "retention_drop": "",
+                "remedy_text": focused_remedy,
+                "verdict": "pending" if prev_remedy else "first",
+            }
+            data_insight_store.add_blacklist(OUTPUT_DIR, [item])
+            task_log.write(OUTPUT_DIR, "review", "focus", "success", wid=wid,
+                           remedy_len=len(focused_remedy))
+        except Exception as e:  # noqa: BLE001
+            print(f"[review] 复盘异常: {e}")
+            import traceback; traceback.print_exc()
+            task_log.write(OUTPUT_DIR, "review", "focus", "error", error=str(e)[:200])
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "focus_sentence": (focus or {}).get("sentence", ""),
+                   "prev_remedy": prev_remedy, "prev_round": prev_round})
+
+
+@app.route("/api/works/<wid>/reanalyze", methods=["POST"])
+def api_work_reanalyze(wid):
+    """重新跑数据专员分析（用于复盘 prompt 升级后让历史报告刷新——旧 prompt 会让阿数
+    抱怨"无采纳记录"，新版改成纯指标归因）。"""
+    w = works_store.get(OUTPUT_DIR, wid)
+    if not w:
+        return jsonify({"ok": False, "error": "作品不存在"}), 404
+    if not w.get("subtitle"):
+        return jsonify({"ok": False, "error": "作品没有字幕稿，无法分析"}), 400
+    # 清空旧报告 + 标记分析中
+    def _reset(x):
+        x["retention_report"] = ""
+        x["analyzing"] = True
+        x["retention_analyzed_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    works_store.update_work(OUTPUT_DIR, wid, _reset)
+    # 后台跑（不阻塞请求）
+    threading.Thread(target=_run_import_analysis, args=(wid,), daemon=True).start()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/works/<wid>/archive", methods=["POST"])
 def api_work_archive(wid):
     w = works_store.archive(OUTPUT_DIR, wid)
@@ -3091,11 +3244,22 @@ def api_work_restore(wid):
 
 @app.route("/api/works/<wid>/delete", methods=["POST"])
 def api_work_delete(wid):
-    """硬删除作品（真删，不可恢复）。"""
+    """硬删除作品（真删，不可恢复）。with_files=true 时连 works_data/<wid> 目录一起删。"""
+    data = request.get_json(force=True, silent=True) or {}
+    with_files = bool(data.get("with_files"))
     removed = works_store.delete(OUTPUT_DIR, wid)
     if not removed:
         return jsonify({"ok": False, "error": "作品不存在或已删除"}), 404
-    return jsonify({"ok": True})
+    files_removed = False
+    if with_files:
+        d = os.path.join(OUTPUT_DIR, "works_data", wid)
+        if os.path.isdir(d):
+            try:
+                shutil.rmtree(d, ignore_errors=True)
+                files_removed = True
+            except OSError as e:
+                print(f"[server] 删除作品数据文件失败 {wid}: {e}")
+    return jsonify({"ok": True, "files_removed": files_removed})
 
 
 @app.route("/api/overview")
@@ -3181,13 +3345,130 @@ def api_wipe():
 
 @app.route("/api/status")
 def api_status():
+    """前端心跳判死前会先探活此接口：必须快速返回 200 且带最新任务状态。
+    全部数据来自内存状态/一次轻量 JSON 读取，不做任何网络调用，即使有任务在跑也不阻塞。
+    关键：每个子状态获取走 _safe_get 1 秒超时，单个子模块卡死不会拖累整个接口。"""
+    import functools
+    def _safe_get(fn, default, timeout=1.0):
+        """子状态获取 1 秒超时兜底：超时或异常 → 返回 default，绝不让单个子模块
+        把 /api/status 拖到 5 秒+触发前端心跳超时弹"服务无响应"遮罩。"""
+        result = [default]
+        def _runner():
+            try:
+                result[0] = fn()
+            except Exception as e:  # noqa: BLE001
+                print(f"[server] /api/status 子模块异常: {type(e).__name__}: {str(e)[:100]}")
+                result[0] = default
+        t = threading.Thread(target=_runner, daemon=True)
+        t.start()
+        t.join(timeout=timeout)
+        return result[0]
+    # 会话任务（洗稿/评论/定稿等在跑的 phase）
+    with SESSIONS_LOCK:
+        running = []
+        now_ts = time.time()
+        for sid, s in list(SESSIONS.items()):
+            ph = getattr(s, "phase", "idle")
+            # phase 看门狗：任务线程已死/卡死（90 秒无任何事件）但 phase 未复位 →
+            # 强制复位 idle，避免横幅永远显示「运行中任务 N」误导用户
+            if ph != "idle" and now_ts - getattr(s, "last_active_ts", now_ts) > 90:
+                try:
+                    s.end_phase()
+                    print(f"[server] phase 看门狗：会话 {sid} 卡在 {ph} 超过 90 秒无事件，已复位 idle")
+                except Exception:  # noqa: BLE001
+                    pass
+                ph = getattr(s, "phase", "idle")
+            rw = getattr(s, "rw", {}) or {}
+            if ph != "idle":
+                running.append({
+                    "sid": sid,
+                    "phase": ph,
+                    "rid": rw.get("rid", ""),
+                    "task": rw.get("kind") or ("rewrite" if rw.get("rid") else "discussion"),
+                })
+    # 洗稿存档里 running/iterating 残留（含 last_error，供前端判断「继续洗」是否死循环）
+    try:
+        rw_sessions = rewrite_store.list_sessions(OUTPUT_DIR)
+        # ① store 僵尸任务看门狗（根治「永久进行中」）：running/iterating 任务超过 10 分钟无
+        #    last_event_ts 更新 → 自动置 failed + 写 last_error，让用户看到失败原因并可重试，
+        #    而不是永远显示「进行中」。phase 看门狗只复位 in-memory phase，不碰 store，故需此处兜底。
+        now_ts = time.time()
+        for s in rw_sessions:
+            st = s.get("status")
+            if st not in ("running", "iterating"):
+                continue
+            lts = s.get("last_event_ts")
+            if not lts:
+                continue
+            try:
+                age = now_ts - float(lts)
+            except (TypeError, ValueError):
+                continue
+            if age > 600:  # 10 分钟没事件 = 卡死
+                rid = s.get("id", "")
+                try:
+                    rewrite_store.set_session_status(OUTPUT_DIR, rid, "failed")
+                    rewrite_store.update_session(OUTPUT_DIR, rid, lambda x: x.update({
+                        "last_error": "任务卡死超过 10 分钟无进展，已自动标记失败。可点「重新洗」从原稿重试。",
+                    }))
+                    print(f"[server] store 看门狗：洗稿 {rid} 卡死 {int(age)} 秒无事件，已自动置 failed")
+                except Exception as e:  # noqa: BLE001
+                    print(f"[server] store 看门狗重置 {rid} 失败: {e}")
+        rw_sessions = rewrite_store.list_sessions(OUTPUT_DIR)
+        rw_unfinished = [
+            {"rid": s.get("id"), "status": s.get("status"),
+             "stage_text": s.get("stage_text", ""),
+             "last_error": s.get("last_error", "")}
+            for s in rw_sessions if s.get("status") in ("running", "iterating", "failed")
+        ]
+    except Exception as e:  # noqa: BLE001
+        print(f"[server] /api/status 读洗稿状态失败: {e}")
+        rw_unfinished = []
+    # 抓取/预加载文案/识别/TTS 的实时状态（1 秒超时兜底，单模块卡不死接口）
+    monitor_state = _safe_get(lambda: monitor_server.get_status().get("state"), None)
+    tts_state = _safe_get(lambda: tts_server.get_status().get("state"), None)
+    extract_running = _safe_get(lambda: sum(
+        1 for t in extract_server._EXTRACT_TASKS.values()
+        if t.get("status") == "running"
+    ), 0)
     return jsonify({
         "ok": True,
         "running": len(SESSIONS),
+        "tasks": running,                 # 当前在跑的会话任务
+        "rewrite_unfinished": rw_unfinished,  # 洗稿残留/失败记录（含 last_error）
+        "monitor": monitor_state,         # 对标监控抓取进度（done/total）
+        "tts": tts_state,                 # TTS 合成队列状态
+        "extract_running": extract_running,   # 识别（extract）进行中任务数
         "ts": datetime.datetime.now().isoformat(),
         "data_dir": DATA_DIR,
         "output_dir": OUTPUT_DIR,
     })
+
+
+@app.route("/api/diag")
+def api_diag():
+    """诊断接口：返回最近的任务日志尾部（tasks.jsonl），供前端「服务无响应」
+    遮罩显示真实原因——遮罩只是表象，这里才是后端到底发生了什么的权威对账。"""
+    try:
+        import task_log
+        path = task_log.log_path(OUTPUT_DIR)
+        if not os.path.isfile(path):
+            return jsonify({"ok": True, "lines": []})
+        # 只读尾部 20 行（每行一条 JSON）
+        with open(path, "r", encoding="utf-8") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 8192))
+            tail = f.read().strip().splitlines()
+        lines = []
+        for line in tail[-20:]:
+            try:
+                lines.append(json.loads(line))
+            except Exception:  # noqa: BLE001
+                pass
+        return jsonify({"ok": True, "lines": lines})
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(e)[:120]}), 500
 
 
 @app.route("/api/notifications")
@@ -3293,7 +3574,8 @@ def _get_rw_session(rid: str):
             try:
                 with open(os.path.join(SESSIONS_DIR, fn), "r", encoding="utf-8") as f:
                     data = json.load(f)
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
+                print(f"[server] 读会话存档失败 {fn}: {e}")
                 continue
             if (data.get("rw") or {}).get("rid") == rid:
                 s = Session()
@@ -3334,6 +3616,9 @@ def api_rewrite_start():
         "saves": data.get("saves", ""),
     }
     requirements = (data.get("requirements") or "").strip()
+    source_url = (data.get("source_url") or "").strip()
+    source_platform = (data.get("source_platform") or "").strip()
+    source_video_id = (data.get("source_video_id") or "").strip()
 
     sid = uuid.uuid4().hex[:12]
     session = Session()
@@ -3347,15 +3632,20 @@ def api_rewrite_start():
     with SESSIONS_LOCK:
         SESSIONS[sid] = session
 
-    # 存档条目（rid 先建，供后台线程绑定）
-    entry = rewrite_store.create_session(OUTPUT_DIR, original, metrics, requirements)
+    # 存档条目（rid 先建，供后台线程绑定）；素材来源一并记录（保存为作品时带出视频链接）
+    entry = rewrite_store.create_session(OUTPUT_DIR, original, metrics, requirements,
+                                         source_url=source_url, source_platform=source_platform,
+                                         source_video_id=source_video_id)
     session.rw["rid"] = entry["id"]
+    task_log.write(OUTPUT_DIR, "rewrite", "start", "begin", rid=entry["id"], sid=sid)
 
     def _run():
         try:
             rewrite_flow.start_rewrite_flow(session, load_config(), original, metrics, requirements, OUTPUT_DIR, entry["id"])
+            task_log.write(OUTPUT_DIR, "rewrite", "start", "success", rid=entry["id"])
         except Exception as e:  # noqa: BLE001
             print(f"[server] 洗稿流程启动异常: {e}")
+            task_log.write(OUTPUT_DIR, "rewrite", "start", "error", error=task_log.error_text(e), rid=entry["id"])
             session.push({"type": "error", "text": f"洗稿流程出错：{e}"})
             session.finished = True
             session.end_phase()
@@ -3401,10 +3691,22 @@ def _strip_author_prefix(s: str) -> str:
         "收到", "我来", "我负责", "我这边", "已收到", "好的", "好嘞", "嗯，", "明白",
         "按骨架", "按第", "这一part", "这一部分", "这部分", "交给评论区", "我只负责",
         "先给你", "我来写", "我先把", "我的思路", "这里我", "这part",
+        # 老板反复吐槽的术语/口诀式标注，混进成品即丢弃（与前端 rwStripPrefix.PROC_HEAD 对齐）
+        "口诀收尾", "口诀", "身份+反差钩子", "身份反差钩子", "反差钩子", "身份钩子",
+        "身份认同", "对仗金句", "金句收束", "对仗收束", "字数收束", "字数控制",
+        "数字金句", "数字收束", "锚点", "情绪锚点", "叙事钩子", "爆点设计",
+        "记忆锚点", "价值锚点", "引导钩子", "开场钩子", "结尾钩子", "一句话钩子",
+        "信息钩子", "全文共鸣", "共鸣核心", "共情点", "代入感", "身份感", "记忆点",
+        "节奏铺垫", "情绪势能", "情绪浓度", "情绪层次", "叙事张力", "反差点",
+        "话术结构", "金句结构", "结构化表达", "收尾", "建议", "设计思路",
     )
     head = t[:6]
     if any(k in head for k in _PROC):
         return ""
+    # 中段/尾部出现「口诀收尾」「身份+反差钩子」等术语也丢弃（不只看句首）
+    for k in ("口诀收尾", "口诀", "身份+反差钩子", "身份反差钩子", "反差钩子", "身份钩子"):
+        if k in t:
+            return ""
     return t
 
 
@@ -3420,14 +3722,16 @@ def _backfill_final_from_parts(output_dir, entry: dict) -> dict:
         return entry  # 已有 final，无需兜底
     try:
         regions = rewrite_store.get_regions(output_dir)
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        print(f"[server] 读分区定义失败（兜底拼装跳过）: {e}")
         regions = []
     if not regions:
         return entry
     assignments = {}
     try:
         assignments = rewrite_store.get_assignments(output_dir) or {}
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        print(f"[server] 读负责人配置失败（兜底拼装跳过）: {e}")
         assignments = {}
     sents, agents = [], []
     seen = set()  # 归一化后句子，用于跨分区去重
@@ -3476,6 +3780,33 @@ def api_rewrite_get(rid):
     return jsonify({"ok": True, "session": entry, "sid": sess.sid if sess else ""})
 
 
+@app.route("/api/rewrite/<rid>/reset_stuck", methods=["POST"])
+def api_rewrite_reset_stuck(rid):
+    """把 store 里 status=running 但实际没在跑的任务重置为 failed（清除卡死状态）。
+    适用：session 状态显示'进行中'但流水线无新事件 / banner 显示 0 任务 / LLM 端点已 hang。
+    不会真改 in-memory SESSIONS（那个有看门狗自动处理），只改 rewrite_sessions.json 里的状态。"""
+    entry = rewrite_store.get_session(OUTPUT_DIR, rid)
+    if not entry:
+        return jsonify({"ok": False, "error": "洗稿记录不存在"}), 404
+    if entry.get("status") not in ("running", "iterating"):
+        return jsonify({"ok": False, "error": f"当前状态 {entry.get('status')} 不需要重置"}), 400
+    # 同时把 in-memory 里的相关 session 也清（如果有）
+    with SESSIONS_LOCK:
+        for s in list(SESSIONS.values()):
+            if (s.rw or {}).get("rid") == rid:
+                try:
+                    s.end_phase()
+                except Exception:
+                    pass
+    rewrite_store.update_session(OUTPUT_DIR, rid, lambda s: s.update({
+        "status": "failed",
+        "last_error": "用户主动重置（任务卡死）",
+        "redo_of": s.get("redo_of") or rid,
+    }))
+    task_log.write(OUTPUT_DIR, "rewrite", "reset_stuck", "success", rid=rid, note="user reset stuck status")
+    return jsonify({"ok": True, "rid": rid, "status": "failed"})
+
+
 @app.route("/api/rewrite/<rid>/redo", methods=["POST"])
 def api_rewrite_redo(rid):
     """「重新洗」：保留原稿与四维数据，换要求一键重跑（生成新 rid）。"""
@@ -3499,6 +3830,7 @@ def api_rewrite_redo(rid):
     _rw_members(session)
     with SESSIONS_LOCK:
         SESSIONS[session.sid] = session
+    task_log.write(OUTPUT_DIR, "rewrite", "redo", "begin", rid=entry["id"], redo_of=rid)
 
     def _run():
         try:
@@ -3507,8 +3839,10 @@ def api_rewrite_redo(rid):
                 entry.get("metrics") or {}, entry.get("requirements") or "",
                 OUTPUT_DIR, entry["id"],
             )
+            task_log.write(OUTPUT_DIR, "rewrite", "redo", "success", rid=entry["id"])
         except Exception as e:  # noqa: BLE001
             print(f"[server] 重新洗流程异常: {e}")
+            task_log.write(OUTPUT_DIR, "rewrite", "redo", "error", error=task_log.error_text(e), rid=entry["id"])
             session.push({"type": "error", "text": f"洗稿流程出错：{e}"})
             session.finished = True
             session.end_phase()
@@ -3519,6 +3853,78 @@ def api_rewrite_redo(rid):
     notify_store.add(OUTPUT_DIR, "rewrite", f"已重新洗稿：{entry.get('title') or entry['id']}",
                      "保留原稿与数据，新要求已生效。", {"view": "rewrite", "rid": entry["id"]})
     return jsonify({"ok": True, "sid": session.sid, "rid": entry["id"], "members": session.members})
+
+
+@app.route("/api/rewrite/<rid>/resume", methods=["POST"])
+def api_rewrite_resume(rid):
+    """「继续上次洗稿」：用户关闭软件后再开会话能接着跑（不浪费之前的进展提示）。
+    实际行为：
+      - 如果 entry 已有完整成品（status=review/done 且 parts.final 有内容）→ 恢复内存会话但
+      不启动新线程，前端立即显示成品（避免 resume 后 RwFullText 一直显示空骨架占位的"假卡死"）。
+      - 否则（status=failed/running 且无 final）→ 重启线程跑全流程。
+    用户视角：从上次中断的地方继续。"""
+    old = rewrite_store.get_session(OUTPUT_DIR, rid)
+    if not old:
+        return jsonify({"ok": False, "error": "找不到该洗稿记录"}), 404
+    final = (old.get("parts") or {}).get("final") or {}
+    has_final = bool(final.get("text") or (final.get("sentences") and len(final.get("sentences"))))
+    # 把原状态从 running/failed 重置回 running（让列表显示「继续中」而非「失败」）
+    rewrite_store.update_session(OUTPUT_DIR, rid, lambda s: s.update({
+        "status": "running",
+        "last_error": "",
+        "redo_of": s.get("redo_of") or rid,
+    }))
+    # 启动新会话（保留同一 rid 的存档）
+    session = Session()
+    session.sid = uuid.uuid4().hex[:12]
+    session.script = old.get("original") or ""
+    session.rw = {
+        "rid": rid, "original": old.get("original") or "",
+        "metrics": old.get("metrics") or {},
+        "requirements": old.get("requirements") or "", "status": "running",
+    }
+    _rw_members(session)
+    with SESSIONS_LOCK:
+        SESSIONS[session.sid] = session
+    task_log.write(OUTPUT_DIR, "rewrite", "resume", "begin", rid=rid)
+
+    # 已有成品 → 恢复会话但不重跑，把已有产物重放到 session.history 让前端立即可见。
+    if has_final:
+        from rewrite_flow import _emit_resume_history
+        _emit_resume_history(session, old, final)
+        # 状态收尾到 review：用户可以看成品，不需要再跑全流程
+        rewrite_store.set_session_status(OUTPUT_DIR, rid, "review")
+        session.rw["status"] = "review"
+        session.finished = True
+        session.end_phase()
+        session.push({"type": "system", "text": "▶️ 已接着上次继续洗稿（成品已恢复，不需要重跑）", "kind": "phase"})
+        session.push({"type": "done"})
+        task_log.write(OUTPUT_DIR, "rewrite", "resume", "success", rid=rid, note="replayed_existing_final")
+        return jsonify({"ok": True, "sid": session.sid, "rid": rid, "members": session.members})
+
+    def _run():
+        try:
+            rewrite_flow.start_rewrite_flow(
+                session, load_config(),
+                old.get("original") or "",
+                old.get("metrics") or {},
+                old.get("requirements") or "",
+                OUTPUT_DIR, rid,
+            )
+            task_log.write(OUTPUT_DIR, "rewrite", "resume", "success", rid=rid)
+        except Exception as e:  # noqa: BLE001
+            print(f"[server] 继续洗稿流程异常: {e}")
+            task_log.write(OUTPUT_DIR, "rewrite", "resume", "error", error=task_log.error_text(e), rid=rid)
+            session.push({"type": "error", "text": f"洗稿流程出错：{e}"})
+            session.finished = True
+            session.end_phase()
+            session.push({"type": "done"})
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    notify_store.add(OUTPUT_DIR, "rewrite", f"已继续上次洗稿：{old.get('title') or rid}",
+                     "接着跑剩余阶段，进度会自动保存。", {"view": "rewrite", "rid": rid})
+    return jsonify({"ok": True, "sid": session.sid, "rid": rid, "members": session.members})
 
 
 @app.route("/api/rewrite/batch", methods=["POST"])
@@ -3553,12 +3959,15 @@ def api_rewrite_comment(rid):
     if not session.try_begin("rw_comment"):
         return jsonify({"ok": False, "error": "另一项任务正在进行中，请稍后再试"}), 409
     session.finished = False
+    task_log.write(OUTPUT_DIR, "rewrite", "comment", "begin", rid=rid, region=region_id)
 
     def _run():
         try:
             rewrite_flow.run_part_comment(session, load_config(), rid, region_id, comment, OUTPUT_DIR)
+            task_log.write(OUTPUT_DIR, "rewrite", "comment", "success", rid=rid, region=region_id)
         except Exception as e:  # noqa: BLE001
             print(f"[server] 洗稿评论迭代异常: {e}")
+            task_log.write(OUTPUT_DIR, "rewrite", "comment", "error", error=task_log.error_text(e), rid=rid, region=region_id)
             session.push({"type": "error", "text": f"评论迭代出错：{e}"})
         finally:
             session.end_phase()
@@ -3585,12 +3994,15 @@ def api_rewrite_sentence_comment(rid):
     if not session.try_begin("rw_comment"):
         return jsonify({"ok": False, "error": "另一项任务正在进行中，请稍后再试"}), 409
     session.finished = False
+    task_log.write(OUTPUT_DIR, "rewrite", "sentence_comment", "begin", rid=rid, region=region_id)
 
     def _run():
         try:
             rewrite_flow.run_sentence_comment(session, load_config(), rid, region_id, sentence, comment, OUTPUT_DIR)
+            task_log.write(OUTPUT_DIR, "rewrite", "sentence_comment", "success", rid=rid, region=region_id)
         except Exception as e:  # noqa: BLE001
             print(f"[server] 洗稿句级评论迭代异常: {e}")
+            task_log.write(OUTPUT_DIR, "rewrite", "sentence_comment", "error", error=task_log.error_text(e), rid=rid, region=region_id)
             session.push({"type": "error", "text": f"句级评论迭代出错：{e}"})
         finally:
             session.end_phase()
@@ -3602,6 +4014,38 @@ def api_rewrite_sentence_comment(rid):
     return jsonify({"ok": True})
 
 
+@app.route("/api/rewrite/<rid>/sentence_accept", methods=["POST"])
+def api_rewrite_sentence_accept(rid):
+    """逐句采纳：用户点「✅ 采用」→ 把重写后的新句写回 archive。"""
+    data = request.get_json(force=True, silent=True) or {}
+    session = _get_rw_session(rid)
+    if not session:
+        return jsonify({"ok": False, "error": "会话不存在或已过期"}), 400
+    region_id = (data.get("region") or "").strip()
+    sentence = (data.get("sentence") or "").strip()
+    new_text = (data.get("new_text") or "").strip()
+    if not region_id or not sentence or not new_text:
+        return jsonify({"ok": False, "error": "缺少区域、原句或新句"}), 400
+    rewrite_flow.run_sentence_accept(session, rid, region_id, sentence, new_text, OUTPUT_DIR)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/rewrite/<rid>/sentence_reject", methods=["POST"])
+def api_rewrite_sentence_reject(rid):
+    """逐句采纳：用户点「❌ 保留原句」→ 丢弃候选句（archive 未动）。"""
+    data = request.get_json(force=True, silent=True) or {}
+    session = _get_rw_session(rid)
+    if not session:
+        return jsonify({"ok": False, "error": "会话不存在或已过期"}), 400
+    region_id = (data.get("region") or "").strip()
+    sentence = (data.get("sentence") or "").strip()
+    new_text = (data.get("new_text") or "").strip()
+    if not region_id or not sentence:
+        return jsonify({"ok": False, "error": "缺少区域或原句"}), 400
+    rewrite_flow.run_sentence_reject(session, rid, region_id, sentence, new_text, OUTPUT_DIR)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/rewrite/<rid>/finalize", methods=["POST"])
 def api_rewrite_finalize(rid):
     """满意后：最终阿审审查 + 阿数记录分工。"""
@@ -3610,13 +4054,28 @@ def api_rewrite_finalize(rid):
         return jsonify({"ok": False, "error": "会话不存在或已过期"}), 400
     if not session.try_begin("rw_finalize"):
         return jsonify({"ok": False, "error": "另一项任务正在进行中，请稍后再试"}), 409
+    # 前置校验：没有成品正文时不允许跑最终审查（避免空 entry 被标成 done）
+    entry = rewrite_store.get_session(OUTPUT_DIR, rid)
+    parts = (entry or {}).get("parts") or {}
+    has_body = False
+    for k in ("opening", "middle", "ending", "final"):
+        p = parts.get(k) or {}
+        if p.get("text") or (p.get("sentences") or []):
+            has_body = True
+            break
+    if not has_body:
+        session.end_phase()
+        return jsonify({"ok": False, "error": "该洗稿还没有生成成品正文，无法执行最终审查"}), 400
     session.finished = False
+    task_log.write(OUTPUT_DIR, "rewrite", "finalize", "begin", rid=rid)
 
     def _run():
         try:
             rewrite_flow.run_final_review(session, load_config(), rid, OUTPUT_DIR)
+            task_log.write(OUTPUT_DIR, "rewrite", "finalize", "success", rid=rid)
         except Exception as e:  # noqa: BLE001
             print(f"[server] 洗稿定稿异常: {e}")
+            task_log.write(OUTPUT_DIR, "rewrite", "finalize", "error", error=task_log.error_text(e), rid=rid)
             session.push({"type": "error", "text": f"定稿流程出错：{e}"})
         finally:
             session.end_phase()
@@ -3651,20 +4110,63 @@ def api_rewrite_to_work(rid):
     entry = rewrite_store.get_session(OUTPUT_DIR, rid)
     if not entry:
         return jsonify({"ok": False, "error": "找不到该洗稿记录"})
+    # 复用兜底拼装：无 final 或 final 空时，按正文三区剥前缀+逐句清洗拼成一个干净 final，
+    # 与前端展示/复制/去重保持一致（保证「能看到的成品就能保存为作品」）。
+    entry = _backfill_final_from_parts(OUTPUT_DIR, entry)
     parts = entry.get("parts") or {}
-    regions = rewrite_store.REGIONS
-    lines = []
-    for r in regions:
-        p = parts.get(r["id"]) or {}
-        if p.get("text"):
-            lines.append("【" + r["label"] + "】\n" + p["text"])
-    final_text = "\n\n".join(lines).strip()
+    # 优先取「最终成品稿 final」（干净可直接发布）；缺失时才回退拼接正文三区。
+    # 注意：bang/controversy/resonance/emotion/rhythm 是「建议/设计区」（存的是嵌入位置+优化句），
+    # 不属于正文，绝不能拼进成品。早期版本全分区拼接会把那些标注带进作品。
+    _f = parts.get("final") or {}
+    final_text = (_f.get("text") or "").strip()
+    if not final_text and (_f.get("sentences") or []):
+        final_text = "\n\n".join(str(x) for x in _f["sentences"]).strip()
+    if not final_text:
+        lines = []
+        for r in rewrite_store.REGIONS:
+            if r["id"] not in ("opening", "middle", "ending"):
+                continue  # 只拼正文区，跳过建议区
+            p = parts.get(r["id"]) or {}
+            if p.get("text"):
+                lines.append(p["text"])
+        final_text = "\n\n".join(lines).strip()
     if not final_text:
         return jsonify({"ok": False, "error": "该洗稿还没有成品内容"})
+    # 最后一道清洗：把 final 里残留的专家前缀/口诀术语剥干净，避免脏文本进作品库
+    cleaned_lines = []
+    seen = set()
+    for line in final_text.split("\n"):
+        line = (line or "").strip()
+        if not line:
+            cleaned_lines.append("")
+            continue
+        c = _strip_author_prefix(line)
+        if not c:
+            continue
+        norm = re.sub(r"[\s\u3000]+", "", c)
+        if norm and norm in seen:
+            continue  # 跨句去重（复读机）
+        seen.add(norm)
+        cleaned_lines.append(c)
+    final_text = "\n\n".join(x for x in cleaned_lines if x).strip()
+    if not final_text:
+        return jsonify({"ok": False, "error": "该洗稿没有可发布的正文内容"})
     title = (entry.get("title") or "").strip() or ("✂️ 洗稿成品 " + (entry.get("created_at") or "")[:10])
     w = works_store.create(OUTPUT_DIR, title, entry.get("original") or "", "", note="✂️ 来自洗稿工坊")
     if w:
         works_store.set_final(OUTPUT_DIR, w["id"], final_text)
+        # 素材来源一并带入作品（「打开视频」按钮用）；发布信息暂无（用户发布后录入）
+        src = {
+            "video_url": entry.get("source_url") or "",
+            "platform": entry.get("source_platform") or "",
+            "video_id": entry.get("source_video_id") or "",
+        }
+        if any(src.values()):
+            def _set_src(x):
+                for k, v in src.items():
+                    if v:
+                        x[k] = v
+            works_store.update_work(OUTPUT_DIR, w["id"], _set_src)
         rm = entry.get("result_metrics") or {}
         metrics = {}
         if rm.get("likes") not in (None, ""):
@@ -3679,8 +4181,8 @@ def api_rewrite_to_work(rid):
             works_store.save_metrics(OUTPUT_DIR, w["id"], metrics)
     try:
         data_insight_store.count_principle_hits(OUTPUT_DIR, final_text)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        print(f"[server] 原则命中统计失败（不影响保存作品）: {e}")
     notify_store.add(OUTPUT_DIR, "rewrite", f"洗稿成品已保存为作品：{title}",
                      "已并入作品库，可在作品库中继续讨论/复盘。",
                      {"view": "works", "wid": w["id"] if w else None})
@@ -3709,12 +4211,15 @@ def api_rewrite_evaluate():
     if not session.try_begin("rw_evaluate"):
         return jsonify({"ok": False, "error": "另一项任务正在进行中，请稍后再试"}), 409
     session.finished = False
+    task_log.write(OUTPUT_DIR, "rewrite", "evaluate", "begin", sid=sid)
 
     def _run():
         try:
             rewrite_flow.run_evaluate(session, load_config(), OUTPUT_DIR)
+            task_log.write(OUTPUT_DIR, "rewrite", "evaluate", "success", sid=sid)
         except Exception as e:  # noqa: BLE001
             print(f"[server] 洗稿评价异常: {e}")
+            task_log.write(OUTPUT_DIR, "rewrite", "evaluate", "error", error=task_log.error_text(e), sid=sid)
             session.push({"type": "error", "text": f"评价流程出错：{e}"})
         finally:
             session.end_phase()
@@ -3779,12 +4284,17 @@ def api_monitor_accounts_delete(aid):
 @app.route("/api/monitor/fetch", methods=["POST"])
 def api_monitor_fetch():
     data = request.get_json(force=True, silent=True) or {}
-    return jsonify(monitor_server.start_fetch(DATA_DIR, OUTPUT_DIR, force=bool(data.get("force"))))
+    return jsonify(monitor_server.start_fetch(DATA_DIR, OUTPUT_DIR, force=bool(data.get("force")), api_config=_api_config()))
 
 
 @app.route("/api/monitor/status", methods=["GET"])
 def api_monitor_status():
     return jsonify(monitor_server.get_status())
+
+
+@app.route("/api/monitor/preload/status", methods=["GET"])
+def api_monitor_preload_status():
+    return jsonify(monitor_server.get_preload_status())
 
 
 @app.route("/api/monitor/report", methods=["GET"])
@@ -4009,7 +4519,30 @@ def api_extract_link():
     url = extract_server._extract_share_url(raw_url)
     if len(raw_url) > 20_000 or not _valid_extract_url(url):
         return jsonify({"ok": False, "error": "仅支持抖音或小红书单条分享链接"}), 400
-    return jsonify(extract_server.extract_from_link(OUTPUT_DIR, url, _api_config()))
+    # 长视频提取可能耗时数分钟（下载 + ASR + 多次 LLM），改为异步任务，
+    # 立即返回 task_id，前端轮询 /api/extract/task 获取进度/结果，避免 120s 超时中断。
+    task_id = extract_server.start_extract_task(OUTPUT_DIR, url, _api_config())
+    return jsonify({"ok": True, "task_id": task_id, "status": "running"})
+
+
+@app.route("/api/extract/task", methods=["GET"])
+def api_extract_task():
+    task_id = (request.args.get("task_id") or "").strip()
+    if not task_id:
+        return jsonify({"ok": False, "error": "缺少 task_id"}), 400
+    t = extract_server.get_extract_task(task_id)
+    if t is None:
+        return jsonify({"ok": False, "error": "任务不存在或已过期"}), 404
+    if t.get("status") == "running":
+        return jsonify({"ok": True, "status": "running", "progress_msg": t.get("progress_msg", "")})
+    # done
+    return jsonify({
+        "ok": True,
+        "status": "done",
+        "error": t.get("error"),
+        "result": t.get("result"),
+        "finished_at": t.get("finished_at"),
+    })
 
 
 @app.route("/api/extract/text", methods=["POST"])
@@ -4033,6 +4566,14 @@ def api_extract_segment_update():
     data = request.get_json(force=True, silent=True) or {}
     return jsonify(extract_server.update_segment(
         OUTPUT_DIR, data.get("extract_id", ""), data.get("seg_idx", -1), data.get("speaker", "A")))
+
+
+@app.route("/api/extract/segment/swap", methods=["POST"])
+def api_extract_segment_swap():
+    """一键对换：把 A·师傅 与 B·求测者 的发言全部互换。"""
+    data = request.get_json(force=True, silent=True) or {}
+    return jsonify(extract_server.swap_speakers(
+        OUTPUT_DIR, data.get("extract_id", "")))
 
 
 @app.route("/api/extract/segment/text", methods=["POST"])
@@ -4145,7 +4686,7 @@ def api_workslib_crawl():
     """批量抓取：遍历所有账号，抓视频列表 + 扒文案，后台执行。"""
     data = request.get_json(force=True, silent=True) or {}
     return jsonify(works_library_server.start_crawl(
-        OUTPUT_DIR, count=int(data.get("count", 50)), api_config=_api_config()))
+        OUTPUT_DIR, count=_safe_int(data.get("count"), 200), api_config=_api_config()))
 
 
 @app.route("/api/workslib/status", methods=["GET"])
@@ -4194,7 +4735,7 @@ def api_workslib_reextract_all():
     """
     data = request.get_json(force=True, silent=True) or {}
     account_id = data.get("account_id", "")
-    max_segments = int(data.get("max_segments", 3))  # segments < 此值视为过低
+    max_segments = _safe_int(data.get("max_segments"), 3)  # segments < 此值视为过低
     only_errors = bool(data.get("only_errors", False))  # 只重扒有 error 的
     if not account_id:
         return jsonify({"ok": False, "error": "缺少 account_id"})
@@ -4203,12 +4744,23 @@ def api_workslib_reextract_all():
         max_segments=max_segments, only_errors=only_errors))
 
 
+@app.route("/api/workslib/reextract_all_accounts", methods=["POST"])
+def api_workslib_reextract_all_accounts():
+    """启动后台批量补扒：所有账号下段数过少或失败的视频。通过 /api/workslib/status 轮询进度。"""
+    data = request.get_json(force=True, silent=True) or {}
+    max_segments = _safe_int(data.get("max_segments"), 3)
+    only_errors = bool(data.get("only_errors", False))
+    return jsonify(works_library_server.start_reextract_all_accounts(
+        OUTPUT_DIR, api_config=_api_config(),
+        max_segments=max_segments, only_errors=only_errors))
+
+
 @app.route("/api/workslib/delete_short", methods=["POST"])
 def api_workslib_delete_short():
     """批量删除时长不足 60 秒的视频（同时记入排除清单，下次抓取不再抓回）。"""
     data = request.get_json(force=True, silent=True) or {}
     account_id = data.get("account_id", "")  # 为空时扫描所有账号
-    min_duration_ms = int(data.get("min_duration_ms", 60000))
+    min_duration_ms = _safe_int(data.get("min_duration_ms"), 60000)
     return jsonify(works_library_server.delete_short_videos(
         OUTPUT_DIR, account_id, min_duration_ms))
 
@@ -4604,8 +5156,61 @@ def api_weekly_report():
 # 启动时确保骨架库包含最新默认模板（作为模块被桌面端导入时也会执行）
 try:
     skeleton_store.ensure_defaults(OUTPUT_DIR)
-except Exception:  # noqa: BLE001
-    pass
+except Exception as e:  # noqa: BLE001
+    print(f"[server] 骨架库默认模板初始化失败: {e}")
+
+
+def _reset_stale_running_states() -> None:
+    """启动自愈：清理崩溃遗留的「永久进行中」状态。
+    1. 作品库 analyzing=True 残留 → 重置 False
+    2. 洗稿 status=running/iterating 残留 → 置 failed：
+       a) last_event_ts 缺失或超过 5 分钟（说明真的崩了）→ failed；
+       b) skeleton/analysis/parts 全部为空（数据损坏/刚启动就崩，什么都没产出）→
+          无论 last_event_ts 新旧都置 failed，并写清 last_error——
+          否则前端「继续洗」会拿着空数据反复死循环。"""
+    try:
+        import works_store
+        def _fix_analyzing(data):
+            for w in data.get("works", []) or []:
+                if w.get("analyzing"):
+                    w["analyzing"] = False
+        works_store.update(OUTPUT_DIR, _fix_analyzing)
+    except Exception as e:  # noqa: BLE001
+        print(f"[server] 启动自愈：重置作品 analyzing 状态失败: {e}")
+        task_log.write(OUTPUT_DIR, "startup_heal", "works_analyzing", "error", error=task_log.error_text(e))
+    try:
+        import rewrite_store
+        import time as _t
+        def _fix_rw_running(data):
+            for s in data.get("sessions", []) or []:
+                if s.get("status") not in ("running", "iterating"):
+                    continue
+                last_ts = s.get("last_event_ts")
+                # 没 last_event_ts（老数据）→ 当作崩溃残留；否则看时间
+                stalled = (not last_ts) or ((_t.time() - float(last_ts)) > 300)
+                # 数据完整性：骨架/分析/分区全空 = 什么都没产出，必然无法「继续洗」
+                skeleton = s.get("skeleton")
+                analysis = s.get("analysis")
+                parts = s.get("parts")
+                incomplete = (not skeleton) and (not analysis) and (not parts)
+                if stalled or incomplete:
+                    s["status"] = "failed"
+                    reason = ("上次洗稿异常中断，请点击「▶️ 继续洗」" if stalled else
+                              "洗稿数据不完整（骨架/分析/分区均为空），已自动重置，请点击「▶️ 继续洗」")
+                    if not s.get("last_error") or (incomplete and "数据不完整" not in (s.get("last_error") or "")):
+                        s["last_error"] = reason
+                    print(f"[server] 启动自愈：洗稿 {s.get('id')} 状态 {s['status']} 已被重置为 failed"
+                          f"（{'超时残留' if stalled else '数据不完整'}）")
+        rewrite_store._update(OUTPUT_DIR, _fix_rw_running)
+    except Exception as e:  # noqa: BLE001
+        print(f"[server] 启动自愈：重置洗稿 running 状态失败: {e}")
+        task_log.write(OUTPUT_DIR, "startup_heal", "rewrite_stale", "error", error=task_log.error_text(e))
+
+
+try:
+    _reset_stale_running_states()
+except Exception as e:  # noqa: BLE001
+    print(f"[server] 启动自愈执行失败: {e}")
 
 
 if __name__ == "__main__":

@@ -197,6 +197,15 @@ def _start_server(port: int) -> None:
     )
 
 
+def _notify_user(title: str, msg: str) -> None:
+    """窗口版 exe 下 print 没人看得见——启动失败/异常时弹 Windows 消息框给用户明确反馈。"""
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(0, msg, title, 0x10 | 0x0)  # MB_ICONERROR
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def main() -> None:
     import argparse
     ap = argparse.ArgumentParser(description="靓仔文案工作台 桌面版")
@@ -206,30 +215,105 @@ def main() -> None:
                     help="N 秒后自动关闭窗口（自动化测试用）")
     args = ap.parse_args()
 
+    # 启动诊断日志：进程死了也要有迹可查（老板反馈"服务无响应"反复出现，必须看到底死在哪）
+    def _diag_log(msg):
+        try:
+            out_dir = os.environ.get("WB_DATA_DIR") or os.path.join(os.environ.get("APPDATA", ""), "靓仔文案工作台")
+            os.makedirs(out_dir, exist_ok=True)
+            with open(os.path.join(out_dir, "desktop.log"), "a", encoding="utf-8") as f:
+                f.write(time.strftime("%Y-%m-%d %H:%M:%S") + " [pid=" + str(os.getpid()) + "] " + str(msg) + "\n")
+        except Exception:  # noqa: BLE001
+            pass
+    _diag_log("[boot] 启动 pid=" + str(os.getpid()) + " cwd=" + os.getcwd())
+    # 把进程意外崩溃时也尽量留下 traceback
+    def _excepthook(exc_type, exc_value, exc_tb):
+        import traceback as _tb
+        _diag_log("[crash] 未捕获异常:\n" + "".join(_tb.format_exception(exc_type, exc_value, exc_tb)))
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+    sys.excepthook = _excepthook
+
     # 单实例守护：自检/测试模式允许并发；正常运行时若已有 exe 在运行，
-    # 激活旧窗口并退出，不重复启动服务占端口。
+    # 探活旧实例后端——活着就退出；死了（僵死进程占着 mutex）就杀掉接管。
+    # 这是「服务无响应」反复出现的根因之一：旧实例僵死 → 新实例双击没反应/连死进程。
     if not args.probe and not args.autoclose and not _acquire_single_instance():
-        print("[desktop] 已有一个实例在运行，激活旧窗口并退出")
-        sys.exit(0)
+        _diag_log("[boot] 已有实例在运行，探活旧后端")
+        alive = False
+        try:
+            import urllib.request as _ur
+            _ur.urlopen("http://127.0.0.1:8765/api/status", timeout=2)
+            alive = True
+        except Exception:  # noqa: BLE001
+            alive = False
+        if alive:
+            _diag_log("[boot] 旧实例存活，激活旧窗口并退出")
+            print("[desktop] 已有一个实例在运行，激活旧窗口并退出")
+            sys.exit(0)
+        # 旧实例僵死（后端无响应）→ 杀掉旧进程，接管单实例锁，正常启动
+        _diag_log("[boot] 旧实例僵死（后端无响应），终止旧进程并接管")
+        print("[desktop] 旧实例已僵死，终止旧进程并接管")
+        import subprocess as _sp
+        _sp.run(["taskkill", "/F", "/IM", "靓仔文案工作台.exe", "/T"],
+                capture_output=True, timeout=15)
+        time.sleep(1.5)
 
     port = _find_free_port(args.port)
     threading.Thread(target=_start_server, args=(port,), daemon=True).start()
 
     if not _wait_ready(port):
-        print(f"[desktop] 服务启动失败（端口 {port}）")
+        msg = f"服务启动失败（端口 {port}）。请重启电脑或检查杀毒软件是否拦截。"
+        print(f"[desktop] {msg}")
+        _diag_log("[boot] " + msg)
+        if not args.probe:
+            _notify_user("靓仔文案工作台 启动失败", msg)
         sys.exit(1)
     print(f"[desktop] 服务已就绪: http://127.0.0.1:{port}")
+    _diag_log("[boot] 服务就绪 http://127.0.0.1:" + str(port))
     print(f"[desktop] 数据目录: {os.environ['WB_DATA_DIR']}")
 
-    # 启动时自动续跑「扒文案」任务：上次因关软件/进程被杀而中断时自动接着跑（增量跳过已完成视频）
+    # 桌面模式下也要启动会话清理线程（server.py __main__ 分支不会执行）
+    try:
+        _sweep = getattr(server_mod, "_sweep_sessions", None)
+        if _sweep:
+            threading.Thread(target=_sweep, daemon=True).start()
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 启动时自动续跑 + 24h 周期检查：先让 webview 窗口完全渲染（延迟 3s），
+    # 再在后台线程触发，避免初始化阶段 heavy 抓取把界面卡成白屏。
     try:
         _api_cfg = getattr(server_mod, "_api_config", None)
         _api = _api_cfg() if _api_cfg else {}
         _out = os.path.join(os.environ["WB_DATA_DIR"], "output")
-        if works_library_server.maybe_auto_resume_crawl(_out, _api):
-            print("[desktop] 检测到上次扒文案任务中断，已在后台自动续跑（已完成视频自动跳过）")
+
+        def _auto_start_after_delay():
+            time.sleep(3)
+            result = works_library_server.auto_start_jobs(_out, _api, crawl_count=200)
+            actions = result.get("actions", []) if isinstance(result, dict) else []
+            if actions:
+                print(f"[desktop] 自动启动触发: {actions}")
+            elif result.get("need_crawl"):
+                print(f"[desktop] 已记录 24h 触发时间，下次启动按周期判断")
+            # 对标监控：24h 周期自动抓每个账号 top10 高赞对比 + 预加载文案
+            try:
+                mon = getattr(server_mod, "monitor_server", None)
+                if mon:
+                    mres = mon.auto_start_fetch(os.environ["WB_DATA_DIR"], _out, _api)
+                    if mres and mres.get("ok"):
+                        print("[desktop] 对标监控 24h 自动抓取已启动")
+                    elif mres and mres.get("skipped"):
+                        print(f"[desktop] 对标监控自动抓取跳过: {mres.get('skipped')}")
+                    # 24h 自动预加载文案（字幕/ASR），与抓取联动
+                    try:
+                        pres = mon.auto_preload_pending(_out, _api)
+                        if pres and pres.get("loaded"):
+                            print(f"[desktop] 对标监控自动预加载文案 {pres['loaded']} 条")
+                    except Exception as e:
+                        print(f"[desktop] 对标监控自动预加载异常: {e}")
+            except Exception as e:
+                print(f"[desktop] 对标监控自动抓取异常: {e}")
+        threading.Thread(target=_auto_start_after_delay, daemon=True).start()
     except Exception as e:  # noqa: BLE001
-        print(f"[desktop] 自动续跑检测跳过：{e}")
+        print(f"[desktop] 自动启动检测跳过：{e}")
 
     if args.probe:
         print("[desktop] probe OK")
@@ -281,6 +365,21 @@ def main() -> None:
         background_color="#EDEDED",
         js_api=Api(),
     )
+
+    # 窗口关闭钩子：老板点 X 关闭窗口后，立即强制退出整个进程，
+    # 防止 Flask 线程/WebView 残留成僵死进程——僵死进程会持有单实例锁和端口，
+    # 导致下次双击打不开、或连上死进程出现「服务无响应」（历史反复 bug 根因之一）。
+    def _on_window_closed():
+        _diag_log("[shutdown] 窗口已关闭，os._exit(0)")
+        print("[desktop] 窗口已关闭，立即退出进程（防止僵死占用）")
+        try:
+            os._exit(0)
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        window.events.closed += _on_window_closed
+    except Exception:  # noqa: BLE001
+        pass
 
     if args.autoclose > 0:
         def _closer() -> None:

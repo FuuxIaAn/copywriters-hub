@@ -23,10 +23,20 @@ build_persona 创建角色（无需重新提取，直接复用已扒下来的文
 import hashlib
 import json
 import os
+import threading
 import time
+
+try:
+    from _safe_io import atomic_write_json, safe_load_json
+except ImportError:
+    atomic_write_json = safe_load_json = None
 
 # 环境变量：WB_WORKSLIB_MOCK=1 时抓取层走 mock（离线演示）
 MOCK = os.environ.get("WB_WORKSLIB_MOCK", "") == "1" or os.environ.get("WB_MONITOR_MOCK", "") == "1"
+
+# 模块级锁：后台 crawl/reextract 线程与 API 的增删操作并发读写 accounts.json/<aid>.json，
+# 读-改-写必须串行化，否则丢更新。用 RLock 兼容 mark_extracted→upsert_video 的重入。
+_LOCK = threading.RLock()
 
 
 def _dir(output_dir: str, *parts: str) -> str:
@@ -36,6 +46,8 @@ def _dir(output_dir: str, *parts: str) -> str:
 
 
 def _read_json(path: str, default):
+    if safe_load_json is not None:
+        return safe_load_json(path, default)
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -44,6 +56,9 @@ def _read_json(path: str, default):
 
 
 def _write_json(path: str, data) -> None:
+    if atomic_write_json is not None:
+        atomic_write_json(path, data)
+        return
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=1)
@@ -82,44 +97,46 @@ def get_account(output_dir: str, account_id: str) -> dict | None:
 def upsert_account(output_dir: str, platform: str, home_url: str,
                    meta: dict | None = None) -> dict:
     """按 home_url 去重地添加/更新账号；返回账号 dict。"""
-    accounts = list_accounts(output_dir)
-    home_url = (home_url or "").strip()
-    for a in accounts:
-        if a.get("home_url") == home_url:
-            if meta:
-                a.update(meta)
-            a["platform"] = platform or a.get("platform", "douyin")
-            _save_accounts(output_dir, accounts)
-            return a
-    acc = {
-        "id": _uid(home_url[:48]),
-        "platform": platform or "douyin",
-        "home_url": home_url,
-        "added_at": _now(),
-        "last_fetched_at": None,
-        "video_count": 0,
-    }
-    if meta:
-        acc.update(meta)
-    accounts.append(acc)
-    _save_accounts(output_dir, accounts)
-    return acc
+    with _LOCK:
+        accounts = list_accounts(output_dir)
+        home_url = (home_url or "").strip()
+        for a in accounts:
+            if a.get("home_url") == home_url:
+                if meta:
+                    a.update(meta)
+                a["platform"] = platform or a.get("platform", "douyin")
+                _save_accounts(output_dir, accounts)
+                return a
+        acc = {
+            "id": _uid(home_url[:48]),
+            "platform": platform or "douyin",
+            "home_url": home_url,
+            "added_at": _now(),
+            "last_fetched_at": None,
+            "video_count": 0,
+        }
+        if meta:
+            acc.update(meta)
+        accounts.append(acc)
+        _save_accounts(output_dir, accounts)
+        return acc
 
 
 def remove_account(output_dir: str, account_id: str) -> bool:
-    accounts = list_accounts(output_dir)
-    remain = [a for a in accounts if a.get("id") != account_id]
-    if len(remain) == len(accounts):
-        return False
-    _save_accounts(output_dir, remain)
-    # 删除该账号的视频数据文件
-    try:
-        p = os.path.join(_dir(output_dir), f"{account_id}.json")
-        if os.path.isfile(p):
-            os.remove(p)
-    except OSError:
-        pass
-    return True
+    with _LOCK:
+        accounts = list_accounts(output_dir)
+        remain = [a for a in accounts if a.get("id") != account_id]
+        if len(remain) == len(accounts):
+            return False
+        _save_accounts(output_dir, remain)
+        # 删除该账号的视频数据文件
+        try:
+            p = os.path.join(_dir(output_dir), f"{account_id}.json")
+            if os.path.isfile(p):
+                os.remove(p)
+        except OSError:
+            pass
+        return True
 
 
 # ---------------------------------------------------------------- 视频/对话条目
@@ -139,15 +156,16 @@ def _save_videos(output_dir: str, account_id: str, videos: list) -> None:
 
 def upsert_video(output_dir: str, account_id: str, video: dict) -> None:
     """按 aweme_id 去重地写入/更新一个视频条目。"""
-    videos = load_videos(output_dir, account_id)
-    aweme_id = video.get("aweme_id")
-    for i, v in enumerate(videos):
-        if v.get("aweme_id") == aweme_id:
-            videos[i] = {**v, **video}
-            _save_videos(output_dir, account_id, videos)
-            return
-    videos.append(video)
-    _save_videos(output_dir, account_id, videos)
+    with _LOCK:
+        videos = load_videos(output_dir, account_id)
+        aweme_id = video.get("aweme_id")
+        for i, v in enumerate(videos):
+            if v.get("aweme_id") == aweme_id:
+                videos[i] = {**v, **video}
+                _save_videos(output_dir, account_id, videos)
+                return
+        videos.append(video)
+        _save_videos(output_dir, account_id, videos)
 
 
 def get_video(output_dir: str, account_id: str, aweme_id: str) -> dict | None:
@@ -179,12 +197,13 @@ def mark_video_error(output_dir: str, account_id: str, aweme_id: str, error: str
 
 
 def remove_video(output_dir: str, account_id: str, aweme_id: str) -> bool:
-    videos = load_videos(output_dir, account_id)
-    remain = [v for v in videos if v.get("aweme_id") != aweme_id]
-    if len(remain) == len(videos):
-        return False
-    _save_videos(output_dir, account_id, remain)
-    return True
+    with _LOCK:
+        videos = load_videos(output_dir, account_id)
+        remain = [v for v in videos if v.get("aweme_id") != aweme_id]
+        if len(remain) == len(videos):
+            return False
+        _save_videos(output_dir, account_id, remain)
+        return True
 
 
 # ---------------------------------------------------------------- 排除清单（已删除视频）
@@ -205,12 +224,13 @@ def _save_excluded(output_dir: str, data: dict) -> None:
 
 def add_excluded(output_dir: str, account_id: str, aweme_id: str) -> None:
     """把某视频 aweme_id 记入排除清单，下次抓取时跳过。"""
-    data = load_excluded(output_dir)
-    ids = data.get(account_id, [])
-    if aweme_id not in ids:
-        ids.append(aweme_id)
-        data[account_id] = ids
-        _save_excluded(output_dir, data)
+    with _LOCK:
+        data = load_excluded(output_dir)
+        ids = data.get(account_id, [])
+        if aweme_id not in ids:
+            ids.append(aweme_id)
+            data[account_id] = ids
+            _save_excluded(output_dir, data)
 
 
 def is_excluded(output_dir: str, account_id: str, aweme_id: str) -> bool:
@@ -219,10 +239,11 @@ def is_excluded(output_dir: str, account_id: str, aweme_id: str) -> bool:
 
 def touch_fetch(output_dir: str, account_id: str, video_count: int) -> None:
     """更新账号的抓取时间与视频数。"""
-    accounts = list_accounts(output_dir)
-    for a in accounts:
-        if a.get("id") == account_id:
-            a["last_fetched_at"] = _now()
-            a["video_count"] = video_count
-            _save_accounts(output_dir, accounts)
-            return
+    with _LOCK:
+        accounts = list_accounts(output_dir)
+        for a in accounts:
+            if a.get("id") == account_id:
+                a["last_fetched_at"] = _now()
+                a["video_count"] = video_count
+                _save_accounts(output_dir, accounts)
+                return

@@ -431,7 +431,10 @@ input:not([type]):focus,input[type=text]:focus,input[type=search]:focus,input[ty
 .work-card { background:var(--c-card); border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,.05); cursor:pointer; transition:box-shadow .15s, transform .1s; border:1px solid transparent; }
 .work-card:hover { box-shadow:0 4px 14px rgba(0,0,0,.09); border-color:#d7f3e2; }
 .work-card .wtop { display:flex; align-items:center; gap:8px; }
-.work-card .wtitle { font-size:14px; font-weight:600; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.work-card .wtitle { font-size:14px; font-weight:600; flex:0 1 auto; max-width:55%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.work-card .wvideo { margin-left:auto; flex:none; font-size:11px; border-radius:6px; padding:3px 10px; border:1px solid var(--primary); background:transparent; color:var(--primary); cursor:pointer; }
+.work-card .wvideo:hover { background:var(--primary-bg); }
+.work-card .wvideo.off { border-color:var(--c-border); color:var(--c-text-mute); cursor:not-allowed; }
 .badge-st { font-size:11px; border-radius:4px; padding:2px 8px; flex:none; }
 .st-draft { background:var(--c-bg-soft); color:var(--c-text-sub); } .st-discussing { background:#e8f0fe; color:#1e4e8c; }
 .st-to_adopt { background:#fdf6e3; color:#a26a00; } .st-published { background:var(--primary-bg); color:#0e6b37; }
@@ -585,6 +588,8 @@ table.wtable { width:100%; border-collapse:collapse; font-size:13px; }
 
 /* ---------- 录入数据：文件选择弹窗 ---------- */
 .up-box { width:min(92%,600px) !important; }
+.up-uploaded { margin-bottom:12px; padding:8px 12px; background:var(--c-bg-soft); border-radius:8px; font-size:12px; color:var(--c-text-sub); }
+.up-file-tag { display:inline-block; background:#dff5e7; color:#0e6b37; border-radius:6px; padding:2px 8px; font-size:11px; margin-right:6px; }
 .up-tabs { display:flex; gap:8px; margin-bottom:14px; border-bottom:1px solid var(--c-border); padding-bottom:10px; }
 .up-tab { border:1px solid var(--c-border); background:var(--c-card); border-radius:999px; padding:6px 16px; font-size:13px; color:var(--c-text-sub); cursor:pointer; }
 .up-tab.active { background:var(--primary); border-color:var(--primary); color:#fff; font-weight:600; }
@@ -692,7 +697,7 @@ table.wtable { width:100%; border-collapse:collapse; font-size:13px; }
 .mon-newtag { display:inline-block; font-size:11px; padding:2px 8px; border-radius:10px; background:rgba(255,59,48,.12); color:#ff3b30; }
 .mon-progress { height:6px; background:var(--c-bg-soft); border-radius:4px; overflow:hidden; margin:10px 0; }
 .mon-progress .bar { height:100%; background:var(--primary); width:0; transition:width .3s; }
-.mon-table { width:100%; border-collapse:collapse; font-size:13px; }
+.mon-table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
 .mon-table th { text-align:left; color:var(--c-text-mute); font-weight:500; padding:6px 8px; border-bottom:1px solid var(--c-border); font-size:12px; white-space:nowrap; }
 .mon-table td { padding:7px 8px; border-bottom:1px solid var(--c-border); vertical-align:top; }
 .mon-table td.digg { color:#ff3b30; font-weight:600; white-space:nowrap; }
@@ -704,8 +709,11 @@ table.wtable { width:100%; border-collapse:collapse; font-size:13px; }
 .mon-rank.r1 { background:#ffd700; color:#7a5c00; }
 .mon-rank.r2 { background:var(--c-bg-soft); color:var(--c-text-sub); }
 .mon-rank.r3 { background:#f5c9a8; color:#8a4b12; }
-.mon-video-desc { cursor:pointer; }
+.mon-video-desc { cursor:pointer; max-width:420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; position:relative; }
 .mon-video-desc:hover { color:var(--primary); }
+.mon-video-desc.mon-preloading { background:rgba(255,149,0,.06); box-shadow:inset 2px 0 0 #ff9500; }
+.mon-load-badge { display:inline-block; margin-left:8px; padding:1px 8px; border-radius:20px; background:rgba(255,149,0,.14); color:#ff9500; font-size:11px; font-weight:600; white-space:nowrap; animation:monPulse 1.2s ease-in-out infinite; }
+@keyframes monPulse { 0%,100%{opacity:1} 50%{opacity:.45} }
 .mon-acct-link { color:var(--primary); text-decoration:none; font-weight:600; }
 .mon-acct-link:hover { text-decoration:underline; }
 .mon-acct-vid { cursor:pointer; padding:2px 0; border-radius:4px; }
@@ -714,6 +722,23 @@ table.wtable { width:100%; border-collapse:collapse; font-size:13px; }
 .mon-acct-vid:hover .mav-t { color:var(--primary); }
 .mon-acct-vid .mav-d { display:inline-block; margin-top:1px; font-size:11.5px; color:#ff3b30; font-weight:600; }
 /* ---------- 监控账号抽屉 ---------- */
+.mon-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
+.mon-kpi { padding:14px 16px; display:flex; flex-direction:column; gap:4px; border-radius:12px; }
+.mon-kpi .v { font-weight:700; font-size:22px; font-variant-numeric:tabular-nums; letter-spacing:.2px; }
+.mon-kpi .l { font-size:12px; color:var(--c-text-mute); }
+.mon-hero { box-shadow:0 4px 20px rgba(0,0,0,.04); }
+.mon-acc-section { margin-top:16px; }
+.mon-acc-section:first-child { margin-top:0; }
+.mon-acc-section-hd { font-weight:700; font-size:15px; padding:8px 4px; border-bottom:2px solid var(--c-border); margin-bottom:6px; }
+.mon-acc-list { display:flex; flex-direction:column; }
+.mon-acc-vid { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:8px; cursor:pointer; font-size:13px; }
+.mon-acc-vid:hover { background:var(--c-bg-soft); }
+.mon-acc-vid .mav-i { flex:none; width:20px; height:20px; border-radius:5px; background:var(--c-bg-soft); color:var(--c-text-mute); font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+.mon-acc-vid:nth-child(-n+3) .mav-i { background:#ffd700; color:#7a5c00; }
+.mon-acc-vid .mav-t { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--c-text); }
+.mon-acc-vid:hover .mav-t { color:var(--primary); }
+.mon-acc-vid .mav-d { flex:none; color:#ff3b30; font-weight:600; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.mon-acc-vid .mav-time { flex:none; color:var(--c-text-mute); font-size:12px; white-space:nowrap; }
 .mon-acc-btn { display:inline-flex; align-items:center; gap:6px; margin-top:14px; border:1px solid var(--c-border); background:var(--c-bg-soft); color:var(--c-text); border-radius:8px; padding:8px 14px; font-size:13px; cursor:pointer; }
 .mon-acc-btn:hover { border-color:var(--primary); color:var(--primary); }
 .mon-drawer-mask { position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:2000; opacity:0; pointer-events:none; transition:opacity .25s; }
@@ -1060,6 +1085,11 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-item .rw-ops button { font-size:11px; border-radius:6px; padding:3px 9px; border:1px solid var(--c-border); background:var(--c-card); color:var(--c-text-sub); }
 .rw-item .rw-ops button:hover { background:var(--primary-bg); color:var(--primary); border-color:var(--primary); }
 .rw-item .rw-ops button.del:hover { background:#ffebea; color:#ff3b30; border-color:#ff3b30; }
+.rw-item .rw-ops button.del-link { border:none; background:transparent; color:var(--c-text-mute); padding:3px 6px; }
+.rw-item .rw-ops button.del-link:hover { background:#ffebea; color:#ff3b30; }
+/* 洗稿详情区删除弱化（次要链接样式） */
+.rw-actions .rw-del-link { color:var(--c-text-mute); border-color:transparent; background:transparent; }
+.rw-actions .rw-del-link:hover { color:#ff3b30; background:#ffebea; }
 /* 胜率曲线弹窗 */
 .df-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:10px 0; }
 .df-col { border:1px solid #eef0f3; border-radius:10px; overflow:hidden; }
@@ -1116,7 +1146,7 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-msg .ts { font-size:10px; color:var(--c-text-mute); margin-left:auto; }
 .rw-typing { color:var(--c-text-mute); font-size:12px; padding:4px 2px; }
 .rw-parts { display:flex; flex-direction:column; gap:12px; margin-top:14px; }
-.rw-fulltext { margin-top:0; padding:24px 28px; background:var(--c-card); border:1px solid var(--c-border); border-radius:12px; min-height:280px; flex:1; font-size:16px; line-height:2; color:var(--c-text); overflow-y:auto; }
+.rw-fulltext { margin-top:0; padding:24px 28px; background:var(--c-card); border:1px solid var(--c-border); border-radius:12px; min-height:280px; flex:1; font-size:16px; line-height:2; color:var(--c-text); overflow-y:scroll; scrollbar-gutter:stable both-edges; }
 .rw-para { position:relative; margin:0; padding:0; }
 .rw-s-line { position:relative; display:inline; padding:0; border-radius:0; cursor:text; }
 .rw-s-line:hover { text-decoration:underline; text-decoration-thickness:2px; text-decoration-color:var(--c-text-sub); text-underline-offset:4px; }
@@ -1180,6 +1210,47 @@ html[data-theme="dark"] .seg-avatar-a { background:#3c5c33; }
 .rw-prog-item { font-size:12.5px; color:var(--primary); background:var(--primary-bg); border-radius:8px; padding:6px 10px; display:flex; gap:8px; align-items:center; }
 .rw-prog-item .dot { width:7px; height:7px; border-radius:50%; background:var(--primary); flex:none; }
 .rw-typing { font-size:12.5px; color:var(--c-text-mute); padding:4px 2px; }
+/* 后端诊断横幅：正常=隐藏，异常=红条；可展开看后端任务日志（不依赖用户点"查看原因"按钮） */
+.diag-banner { padding:8px 14px; font-size:12.5px; border-bottom:1px solid var(--c-border,#eee); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.diag-banner.hidden { display:none; }
+.diag-banner.ok { background:#f0f9f4; color:#2c7a45; }
+.diag-banner.fail { background:#fff0f0; color:#c0392b; }
+.diag-banner .d-status { font-weight:600; }
+.diag-banner .d-detail { font-family:monospace; font-size:11px; max-height:160px; overflow-y:auto; background:#fafafa; border-radius:6px; padding:6px 8px; flex:1 1 100%; white-space:pre-wrap; color:#333; }
+/* 逐句采纳候选卡（Canvas 模型） */
+.rw-s-candidate { display:block; margin:6px 0 8px; padding:10px 12px; border:1px solid #0a84ff; border-left:4px solid #0a84ff; border-radius:8px; background:#f0f7ff; font-size:13px; }
+.rw-s-candidate .c-label { font-size:11px; color:#0a84ff; margin-bottom:6px; font-weight:600; }
+.rw-s-candidate .c-new { color:var(--c-text); line-height:1.8; background:#fff; border-radius:6px; padding:8px 10px; margin-bottom:8px; }
+.rw-s-candidate .c-btns { display:flex; gap:8px; }
+.rw-s-candidate .c-ok { background:#34c759; color:#fff; border:none; border-radius:7px; padding:5px 14px; font-size:12.5px; cursor:pointer; }
+.rw-s-candidate .c-no { background:#fff; color:#ff3b30; border:1px solid #ff3b30; border-radius:7px; padding:4px 13px; font-size:12.5px; cursor:pointer; }
+/* 流水线卡片：8 专家头像横条，当前专家高亮（吸顶，不随详情折叠） */
+.rw-pipeline { display:flex; gap:6px; flex-wrap:wrap; align-items:stretch; margin:10px 0; padding:8px 10px; background:var(--c-card); border:1px solid var(--c-border); border-radius:12px; position:sticky; top:0; z-index:20; }
+.rw-pipeline .pl-hint { width:100%; font-size:11px; color:var(--c-text-mute); padding:2px 2px 0; }
+.pl-card { flex:1 1 64px; min-width:56px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:7px 4px 6px; border-radius:10px; background:var(--c-bg-soft); border:1px solid transparent; transition:border-color .2s, background .2s, transform .2s; position:relative; }
+.pl-card .pl-ava { width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px; color:#fff; font-weight:700; }
+.pl-card .pl-name { font-size:11px; color:var(--c-text); font-weight:600; line-height:1.2; text-align:center; }
+.pl-card .pl-role { font-size:9.5px; color:var(--c-text-mute); line-height:1.1; text-align:center; }
+.pl-card .pl-state { position:absolute; top:4px; right:5px; width:14px; height:14px; border-radius:50%; font-size:9px; line-height:14px; text-align:center; }
+.pl-card.pl-idle { opacity:.55; }
+.pl-card.pl-idle .pl-state { background:#c7c7cc; color:#fff; content:'○'; }
+.pl-card.pl-idle .pl-state::after { content:'○'; }
+.pl-card.pl-thinking { border-color:#0a84ff; background:#eef6ff; }
+.pl-card.pl-thinking .pl-ava { animation:plBreath 1.2s ease-in-out infinite; }
+.pl-card.pl-thinking .pl-state { background:#0a84ff; color:#fff; }
+.pl-card.pl-thinking .pl-state::after { content:'…'; }
+.pl-card.pl-working { border-color:#0a84ff; background:#e3f0ff; box-shadow:0 0 0 2px rgba(10,132,255,.25); }
+.pl-card.pl-working .pl-ava { animation:plBreath .8s ease-in-out infinite; }
+.pl-card.pl-working .pl-state { background:#0a84ff; color:#fff; }
+.pl-card.pl-working .pl-state::after { content:'✎'; }
+.pl-card.pl-done { border-color:#d1f2d9; background:#f0fbf2; }
+.pl-card.pl-done .pl-state { background:#34c759; color:#fff; }
+.pl-card.pl-done .pl-state::after { content:'✓'; }
+.pl-card.pl-error { border-color:#fecaca; background:#fef2f2; }
+.pl-card.pl-error .pl-ava { background:#ff3b30 !important; }
+.pl-card.pl-error .pl-state { background:#ff3b30; color:#fff; }
+.pl-card.pl-error .pl-state::after { content:'✗'; }
+@keyframes plBreath { 0%,100% { transform:scale(1); opacity:1; } 50% { transform:scale(1.12); opacity:.75; } }
 .rw-bar { font-size:12px; color:var(--c-text-sub); margin-top:10px; }
 .rw-filter { display:flex; gap:10px; margin:10px 0 12px; flex-wrap:wrap; }
 .rw-filter input { flex:1; min-width:160px; }
@@ -1469,6 +1540,7 @@ html[data-theme="dark"] {
     <button class="nav-item" data-view="settings"><span class="ico"><svg><use href="#ic-gear"/></svg></span>设置</button>
   </aside>
   <main class="main">
+    <div id="diagBanner" class="diag-banner hidden"></div>
     <section id="view-home" class="view"></section>
     <section id="view-chat" class="view hidden">
       <div class="chat-shell">
@@ -1530,6 +1602,137 @@ window.addEventListener('unhandledrejection', function(ev){
   }
   if (ev.preventDefault) ev.preventDefault();
 });
+
+/* ================= 后端心跳：连续失败提示"服务已断开"（历史 bug：后端崩了前端静默白屏） ================= */
+let _hbFailCount = 0;
+let _hbOverlay = null;
+let _backendAlive = true;  // 单源真相：横幅+遮罩都跟它走，避免状态错乱
+function _hbShowOverlay(){
+  if (_hbOverlay) return;
+  _hbOverlay = document.createElement('div');
+  _hbOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center';
+  _hbOverlay.innerHTML =
+    '<div style="background:var(--c-card,#fff);border-radius:16px;padding:28px 34px;max-width:460px;text-align:center">' +
+      '<div style="font-size:34px;margin-bottom:10px">🔌</div>' +
+      '<div style="font-weight:700;font-size:16px;margin-bottom:8px">服务连接已断开</div>' +
+      '<div style="font-size:13px;color:var(--c-text-sub,#888);line-height:1.7;margin-bottom:12px">后台服务可能已停止。请点击下方按钮重连，若仍失败请重新打开软件。</div>' +
+      '<div id="_hbReason" style="display:none;text-align:left;max-height:150px;overflow-y:auto;background:#f8f8f8;border-radius:8px;padding:8px 10px;margin-bottom:12px;font-size:11.5px;color:#555;font-family:monospace;white-space:pre-wrap"></div>' +
+      '<div style="display:flex;gap:8px;justify-content:center">' +
+        '<button id="_hbRetry" style="background:var(--primary,#0a84ff);color:#fff;border:none;border-radius:10px;padding:9px 22px;font-size:14px;cursor:pointer">重新连接</button>' +
+        '<button id="_hbDiag" style="background:#f0f0f0;color:#333;border:1px solid #ddd;border-radius:10px;padding:9px 16px;font-size:13px;cursor:pointer">查看原因</button>' +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--c-text-mute,#999);margin-top:10px">后端恢复后会自动刷新；若长时间不恢复，请关闭窗口后重新打开软件。</div>' +
+    '</div>';
+  document.body.appendChild(_hbOverlay);
+  _hbOverlay.querySelector('#_hbRetry').addEventListener('click', ()=>{
+    // 直接刷新页面：后端若已复活则立即恢复；比"再探活"更彻底
+    try { window.location.reload(); } catch(_){}
+    _hbOverlay.remove(); _hbOverlay = null;
+    _hbFailCount = 0;
+  });
+  // 「查看原因」：拉后端任务日志尾部，把遮罩背后到底发生了什么显示出来（对账）
+  _hbOverlay.querySelector('#_hbDiag').addEventListener('click', async ()=>{
+    const box = _hbOverlay.querySelector('#_hbReason');
+    box.style.display = 'block';
+    box.textContent = '正在读取诊断日志…';
+    try {
+      const d = await _hbFetch('/api/diag').then(r => r.ok ? r.json() : null);
+      const lines = (d && d.lines) || [];
+      if (!lines.length) {
+        box.textContent = '没有找到任务日志。服务可能已完全退出，请关闭软件后重新打开。';
+        return;
+      }
+      box.textContent = lines.map(l => {
+        const extra = l.extra ? (' ' + JSON.stringify(l.extra)) : '';
+        return '[' + String(l.ts || '').slice(5, 19) + '] ' + l.task + '/' + l.op + ' ' + l.status +
+          (l.error ? ' ✗ ' + String(l.error).slice(0, 120) : '') + extra;
+      }).join('\n');
+    } catch(e) {
+      box.textContent = '读取诊断日志失败：' + e.message;
+    }
+  });
+}
+// 兼容旧 WebView2：AbortSignal.timeout 在 Edge < 103 为 undefined，用 AbortController+setTimeout 兜底
+function _hbFetch(url){
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return fetch(url, { signal: AbortSignal.timeout(5000) });
+  }
+  const ctl = new AbortController();
+  const timer = setTimeout(()=>ctl.abort(), 5000);
+  return fetch(url, { signal: ctl.signal }).finally(()=>clearTimeout(timer));
+}
+async function _heartbeat(){
+  try {
+    const res = await _hbFetch('/api/status');
+    if (res.ok) {
+      // 后端复活：单源真相 + 移除遮罩 + toast（不 reload——webview reload 偶发失败反而留下残留遮罩）
+      _hbFailCount = 0;
+      _backendAlive = true;
+      if (_hbOverlay){
+        _hbOverlay.remove(); _hbOverlay = null;
+        if (typeof showToast === 'function') showToast('✅ 后端已恢复');
+      }
+      return;
+    }
+    _hbFailCount++;
+  } catch(_) { _hbFailCount++; }
+  // 单源真相 + 连续 3 次失败才弹遮罩（避免抖动误弹；横幅/遮罩状态都跟 _backendAlive 走，不会再错乱）
+  if (_hbFailCount >= 3 && _backendAlive){
+    _backendAlive = false;
+    _hbShowOverlay();
+  }
+}
+setInterval(_heartbeat, 5000);
+
+/* ================= 后端诊断横幅：实时显示后端状态 + 最近任务日志 ================= */
+let _diagOpen = false;   // 用户点"看后端日志"展开
+async function _diagTick(){
+  const banner = $('diagBanner');
+  if (!banner) return;
+  let statusOk = false;
+  let statusInfo = '';
+  try {
+    const r = await _hbFetch('/api/status').then(r => r.ok ? r.json() : null);
+    if (r) {
+      statusOk = true;
+      const m = r.monitor || {};
+      const t = r.tts || {};
+      const ew = (m.progress && m.progress.done) || 0;
+      const et = (m.progress && m.progress.total) || 0;
+      statusInfo = `后端运行中 · 运行中任务 ${r.running || 0} · 监控 ${ew}/${et} · TTS 队列 ${t.queue || 0}`;
+    }
+  } catch (_) {}
+  let diagText = '';
+  if (_diagOpen) {
+    try {
+      const d = await _hbFetch('/api/diag').then(r => r.ok ? r.json() : null);
+      const lines = (d && d.lines) || [];
+      diagText = lines.slice(-12).map(l => {
+        const extra = l.extra ? (' ' + JSON.stringify(l.extra)) : '';
+        return '[' + String(l.ts || '').slice(5, 19) + '] ' + l.task + '/' + l.op + ' ' + l.status +
+          (l.error ? ' ✗ ' + String(l.error).slice(0, 120) : '') + extra;
+      }).join('\n');
+      if (!diagText) diagText = '（没有任务日志）';
+    } catch (e) {
+      diagText = '读取诊断日志失败：' + e.message;
+    }
+  }
+  if (statusOk) {
+    banner.className = 'diag-banner ok' + (_diagOpen ? '' : '');
+    banner.innerHTML = '<span class="d-status">✅ 后端在线</span> ' + esc(statusInfo) +
+      ' <button class="btn-ghost" id="diagToggle" style="margin-left:auto">' + (_diagOpen ? '收起日志' : '看后端日志') + '</button>' +
+      (_diagOpen ? '<pre class="d-detail">' + esc(diagText) + '</pre>' : '');
+  } else {
+    banner.className = 'diag-banner fail';
+    banner.innerHTML = '<span class="d-status">🔌 后端无响应</span> 请检查软件是否运行中' +
+      ' <button class="btn-ghost" id="diagToggle" style="margin-left:auto">' + (_diagOpen ? '收起日志' : '查看后端日志') + '</button>' +
+      (_diagOpen ? '<pre class="d-detail">' + esc(diagText || '（连不上后端，无法读取日志）') + '</pre>' : '');
+  }
+  const btn = $('diagToggle');
+  if (btn) btn.onclick = () => { _diagOpen = !_diagOpen; _diagTick(); };
+}
+setInterval(_diagTick, 5000);
+setTimeout(_diagTick, 800);
 /* ================= 全局状态 ================= */
 const $ = id => document.getElementById(id);
 let currentView = 'home';
@@ -1595,6 +1798,62 @@ async function post(url, body){
   } catch (e) {
     return {ok:false, error:e.name === 'AbortError' ? '请求超时，请检查网络或稍后重试' : '网络错误：'+e.message};
   } finally { clearTimeout(timer); }
+}
+// 带超时的 GET：默认 60s 长超时（后端跑 5 分钟长任务时 GET 排队等是正常的，
+// 太短就被前端误判为"死了"——本工具内是单进程 flask threaded，
+// 并发请求会排队等长任务结束）。仅在调用方明确传更短的超时时才用更短。
+async function get(url, timeoutMs){
+  const ctl = new AbortController();
+  const ms = timeoutMs || 60000;
+  const timer = setTimeout(()=>ctl.abort(), ms);
+  try {
+    const res = await fetch(url, {signal:ctl.signal});
+    return await safeJson(res);
+} catch (e) {
+      // 文案改温柔：后端可能只是正在跑长任务，**不一定**是死了
+      // ——让"后端无响应"只由全局 _hbOverlay 一个地方表达（统一状态机）
+      return {ok:false, error:e.name === 'AbortError' ? '后端响应超时（可能正忙）' : '网络错误：'+e.message};
+    } finally { clearTimeout(timer); }
+  }
+
+/* 异步链接识别：提交 /api/extract/link 拿到 task_id 后轮询 /api/extract/task，
+   期间回调 progressCb(msg)。长视频 ASR 转录可能数分钟，故不能用 120s 超时。
+   带总超时（15 分钟）与连续失败判定，避免无限轮询锁死界面。 */
+async function extractLinkAsync(url, progressCb){
+  const start = await post('/api/extract/link', { url });
+  if (!start || !start.ok) return start || { ok:false, error:'提交失败' };
+  const taskId = start.task_id;
+  if (!taskId) return { ok:false, error:'未拿到任务号，请重试' };
+  // 轮询（首次稍等让任务真正启动，避免立即打到的状态还是 running）
+  const MAX_WAIT_MS = 15 * 60 * 1000;   // 总超时 15 分钟
+  const BEGIN = Date.now();
+  let failCount = 0;
+  for (;;) {
+    await new Promise(r => setTimeout(r, 1500));
+    if (Date.now() - BEGIN > MAX_WAIT_MS) return { ok:false, error:'识别超时（超过 15 分钟），请检查网络后重试' };
+    let s;
+    try {
+      const res = await fetch('/api/extract/task?task_id=' + encodeURIComponent(taskId));
+      s = await safeJson(res);
+      failCount = 0;
+    } catch (e) {
+      s = { ok:false };
+      failCount++;
+      if (failCount >= 5) return { ok:false, error:'连续连接失败，服务可能已中断，请重启软件' };
+      continue; // 短暂抖动，重试
+    }
+    if (!s || !s.ok) {
+      if (s && s.error) return { ok:false, error:s.error };
+      continue; // 短暂抖动，重试
+    }
+    if (s.status === 'running') {
+      if (progressCb) progressCb(s.progress_msg || '处理中…');
+      continue;
+    }
+    // done
+    if (s.error) return { ok:false, error:s.error };
+    return s.result || { ok:false, error:'未返回提取结果' };
+  }
 }
 
 /* ================= 通用退出动画：播放完再移除（与进入动画对称） ================= */
@@ -1826,10 +2085,17 @@ function confirmSelect(title, sub, options, defaultValue){
 }
 
 /* ================= 视图切换 ================= */
+function clearTypingStuck(){
+  const t = $('rwTypingStuck') || $('rwTyping');
+  if (t) t.remove();
+  if (window._rwTypingTimer) { clearTimeout(window._rwTypingTimer); window._rwTypingTimer = null; }
+  if (typeof showToast === 'function') showToast('⏳ 已清除卡死的打字卡片，刷新页面试试');
+}
+
 function switchView(v) {
   currentView = v;
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === v));
-  VIEWS.forEach(k => $('view-' + k).classList.toggle('hidden', k !== v));
+  VIEWS.forEach(k => { const el = $('view-' + k); if (el) el.classList.toggle('hidden', k !== v); });
   if (v === 'chat') maybeRunChatOnboarding();
   if (v === 'home') loadOverview();
   if (v === 'works') loadWorks();
@@ -1844,6 +2110,13 @@ function switchView(v) {
   if (v !== 'monitor' && monitorPollTimer) { clearInterval(monitorPollTimer); monitorPollTimer = null; }
   if (v !== 'monitor' && autoPollTimer) { clearInterval(autoPollTimer); autoPollTimer = null; }
   if (v !== 'tts' && ttsPollTimer) { clearInterval(ttsPollTimer); ttsPollTimer = null; }
+  if (v !== 'monitor' && preloadPollTimer) { clearInterval(preloadPollTimer); preloadPollTimer = null; }
+  if (v !== 'tts' && ttsMsgPollTimer) { clearInterval(ttsMsgPollTimer); ttsMsgPollTimer = null; }
+  if (v !== 'tts' && _asrPollTimer) { clearInterval(_asrPollTimer); _asrPollTimer = null; }
+  if (v !== 'tts' && _wlPollTimer) { clearInterval(_wlPollTimer); _wlPollTimer = null; }
+  if (v !== 'tts' && ttsBatchTimer) { clearInterval(ttsBatchTimer); ttsBatchTimer = null; }
+  // 离开洗稿视图：关闭 SSE 连接（防止连接泄漏，占满后端线程导致「服务无响应」）
+  if (v !== 'rewrite' && rwEs) { try { rwEs.close(); } catch(_){} rwEs = null; }
   const mainEl = document.querySelector('.main'); if (mainEl) { mainEl.scrollTop = 0; mainEl.classList.toggle('main-tts', v === 'tts'); }
 }
 document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)));
@@ -1983,7 +2256,7 @@ function renderBellPanel(items) {
       if (item && item.link) {
         if (item.link.view) switchView(item.link.view);
         if (item.link.wid) setTimeout(()=>openWorkDetail(item.link.wid), 250);
-        if (item.link.rid) { switchView('rewrite'); setTimeout(()=>selectRewrite(item.link.rid), 250); }
+        if (item.link.rid) { switchView('rewrite'); setTimeout(()=>openRewrite(item.link.rid, true), 250); }
       }
     });
   }));
@@ -2031,7 +2304,7 @@ async function globalSearch(kw) {
     const [kind, id] = el.dataset.k.split('|');
     $('globalSearchInput').value = ''; panel.classList.add('hidden'); searchOpen = false;
     if (kind === 'w') { switchView('works'); setTimeout(()=>openWorkDetail(id), 250); }
-    else { switchView('rewrite'); setTimeout(()=>selectRewrite(id), 250); }
+    else { switchView('rewrite'); setTimeout(()=>openRewrite(id, true), 250); }
   }));
 }
 function closeSearch() { searchOpen = false; $('globalSearchPanel').classList.add('hidden'); }
@@ -2158,7 +2431,8 @@ function statCard(num, label, color) {
 function fmtNum(n) {
   if (n === null || n === undefined) return '—';
   if (typeof n === 'number' && n >= 10000) return (n/10000).toFixed(n>=100000?0:1) + 'w';
-  return String(n);
+  // 非数字输入（用户手动录入的任意字符串）也要过 esc，防存储型 XSS
+  return esc(String(n));
 }
 
 /* ================= 新建文稿流程 ================= */
@@ -2308,8 +2582,27 @@ function finalNode(m){
     '<span class="time" style="margin-left:auto;font-size:11px;color:var(--c-text-mute)">'+esc(m.time)+'</span></div><div class="bubble"><div class="inner"></div></div></div>';
   return wrap.firstElementChild;
 }
+// 轻量 HTML 消毒：后端渲染的 markdown HTML（m.html）零信任。
+// 去除 <script>/<style>/<iframe>、事件属性（on*）、javascript: 协议，防存储型 XSS。
+function sanitizeHtml(html){
+  if (!html) return '';
+  let s = String(html);
+  s = s.replace(/<\s*(script|style|iframe|object|embed|link|meta)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '');
+  s = s.replace(/<\s*(script|style|iframe|object|embed|link|meta)[^>]*\/?\s*>/gi, '');
+  s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  s = s.replace(/(href|src)\s*=\s*(["']?)\s*javascript:[^"'\s>]*\2/gi, '$1="#"');
+  s = s.replace(/<img([^>]*)>/gi, (m, attrs) => {
+    // 图片只保留 src/alt/width/height，其余属性（含事件/加载钩子）全部剥掉
+    const src = (attrs.match(/\ssrc\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i) || ['',''])[1] || '';
+    const alt = (attrs.match(/\salt\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i) || ['',''])[1] || '';
+    if (!src || /javascript:/i.test(src)) return '';
+    return '<img src=' + src + (alt ? ' alt=' + alt : '') + '>';
+  });
+  return s;
+}
+
 async function reveal(node, html){
-  node.innerHTML = html;
+  node.innerHTML = sanitizeHtml(html);
   const ps = node.querySelectorAll('.p');
   ps.forEach(p=>p.style.opacity=0);
   for (const p of ps){ p.style.opacity=1; scrollBottom(); await sleep(120 + Math.min(360, p.textContent.length*2)); }
@@ -2412,7 +2705,8 @@ async function showDiffViewer(orig, fin, title){
     '</div>';
   root.appendChild(box);
   box.querySelector('[data-act=close]').addEventListener('click', ()=>box.remove());
-  box.querySelector('.modal-mask').addEventListener('click', e=>{ if (e.target===box) box.remove(); });
+  // 点击遮罩空白处关闭（box 自身就是 .modal-mask，直接监听自身）
+  box.addEventListener('click', e=>{ if (e.target===box) box.remove(); });
   box.querySelector('[data-act=copy]').addEventListener('click', ()=>{ if (copyText(fin)){ showToast('✅ 已复制成品'); box.remove(); } });
 }
 function updateMergePanel(preview, merges){
@@ -2631,7 +2925,7 @@ function doAdopt(btn, m){
         if (!d.ok){ addSys('⚠ '+(d.error||'记录失败')); return; }
         btn.classList.add('adopted'); btn.innerHTML='<span class="ico" style="width:14px;height:14px;color:#34c759"><svg><use href="#ic-check"/></svg></span>'; btn.title='已采纳';
         if (d.work_id) currentWorkId = d.work_id;
-        addRecorderConfirm(d.html || esc(d.text));
+        addRecorderConfirm(sanitizeHtml(d.html) || esc(d.text));
         const adoptNo = d.adopt_no;
         showToast('已采纳 ' + m.name + ' 的建议', { label:'撤销', onClick:()=>{
           post('/api/undo-adopt', { work_id:currentWorkId, no:adoptNo, reason:'用户撤销' }).then(r=>{
@@ -2816,32 +3110,32 @@ function renderStatic(m){
   if (m.type==='message'||m.type==='final'){
     const node = m.type==='final' ? finalNode({...m,time:m.time||nowTime()}) : bubbleNode({...m,time:m.time||nowTime()},'msg');
     node._msg = m; chat.appendChild(node);
-    node.querySelector('.inner').innerHTML = m.html || esc(m.text||'');
+    node.querySelector('.inner').innerHTML = sanitizeHtml(m.html) || esc(m.text||'');
     attachParagraphAdopt(node, m);
     scrollBottom(); return;
   }
   if (m.type==='review'||m.type==='score'||m.type==='learn'||m.type==='retention'){
     const node = m.type==='review' ? reviewNode({...m,time:m.time||nowTime()}) : m.type==='score' ? scoreNode({...m,time:m.time||nowTime()}) : m.type==='retention' ? retentionNode({...m,time:m.time||nowTime()}) : learnNode({...m,time:m.time||nowTime()});
     chat.appendChild(node);
-    node.querySelector('.inner').innerHTML = m.html || esc(m.text||m.reason||'');
+    node.querySelector('.inner').innerHTML = sanitizeHtml(m.html) || esc(m.text||m.reason||'');
     scrollBottom(); return;
   }
   if (m.type==='score_roast'){
     const node = scoreRoastNode({...m,time:m.time||nowTime()});
     chat.appendChild(node);
-    node.querySelector('.inner').innerHTML = m.html || esc(m.text||'');
+    node.querySelector('.inner').innerHTML = sanitizeHtml(m.html) || esc(m.text||'');
     scrollBottom(); return;
   }
   if (m.type==='debate'){
     const node = debateNode({...m,time:m.time||nowTime()});
     chat.appendChild(node);
-    node.querySelector('.inner').innerHTML = m.html || esc(m.text||'');
+    node.querySelector('.inner').innerHTML = sanitizeHtml(m.html) || esc(m.text||'');
     scrollBottom(); return;
   }
   if (m.type==='principle_review'){
     const node = principleReviewNode({...m,time:m.time||nowTime()});
     chat.appendChild(node);
-    node.querySelector('.inner').innerHTML = m.html || esc(m.text||'');
+    node.querySelector('.inner').innerHTML = sanitizeHtml(m.html) || esc(m.text||'');
     scrollBottom(); return;
   }
   if (m.type==='done'){ doneHandled=true; addSys('讨论结束 · 各专家段落级改写建议见上方卡片'); renderDoneActions(); scrollBottom(); setBusy(false); attachAdoptToAll(); return; }
@@ -3151,8 +3445,8 @@ async function loadCtxbar(){
     const d = await fetch('/api/context').then(r=>r.json());
     const ctx = d.context||{};
     const parts=[];
-    if (ctx.user_identity) parts.push('<span class="ico" style="width:12px;height:12px"><svg><use href="#ic-user"/></svg></span> ' + ctx.user_identity.replace(/^账号主理人是/,'主理人：').replace(/：|:/,'：'));
-    if (ctx.target_audience) parts.push('<span class="ico" style="width:12px;height:12px"><svg><use href="#ic-target"/></svg></span> ' + ctx.target_audience.replace(/^目标受众是/,'受众：').replace(/：|:/,'：'));
+    if (ctx.user_identity) parts.push('<span class="ico" style="width:12px;height:12px"><svg><use href="#ic-user"/></svg></span> ' + esc(ctx.user_identity.replace(/^账号主理人是/,'主理人：').replace(/：|:/,'：')));
+    if (ctx.target_audience) parts.push('<span class="ico" style="width:12px;height:12px"><svg><use href="#ic-target"/></svg></span> ' + esc(ctx.target_audience.replace(/^目标受众是/,'受众：').replace(/：|:/,'：')));
     ctxbar.innerHTML = parts.join(' ｜ ') || '（未配置创作背景）';
   }catch(e){ ctxbar.textContent='（创作背景加载失败）'; }
 }
@@ -3243,25 +3537,55 @@ async function loadWorks(){
 }
 function bindWorkCards(container){
   if (!container) return;
-  container.querySelectorAll('.work-card').forEach(c=>c.addEventListener('click', e=>{
-    if (e.target.closest('.wsel') || e.target.closest('button')) return;
-    openWorkDetail(c.dataset.wid);
-  }));
-  container.querySelectorAll('.wsel input').forEach(cb=>cb.addEventListener('change', ()=>{
+  // 事件委托：只在容器上绑一次，用 closest 分发。
+  // 历史 bug：滚动追加卡片后全量重绑 → 老卡片 click/change 叠加触发（开两个抽屉/双请求）。
+  if (container.dataset.bound === '1') return;
+  container.dataset.bound = '1';
+  container.addEventListener('click', e=>{
+    const card = e.target.closest('.work-card');
+    if (!card) return;
+    const btn = e.target.closest('[data-act]');
+    if (btn) {
+      e.stopPropagation();
+      const wid=btn.dataset.wid, act=btn.dataset.act;
+      if (act==='discuss'){ continueDiscussion(wid); }
+      else if (act==='rediscuss'){ rediscuss(wid); }
+      else if (act==='data'){ enterMetrics(wid); }
+      else if (act==='archive'){ archiveWork(wid); }
+      else if (act==='restore'){ restoreWork(wid); }
+      else if (act==='delete'){ deleteWork(wid); }
+      return;
+    }
+    if (e.target.closest('.wsel')) return;
+    openWorkDetail(card.dataset.wid);
+  });
+  container.addEventListener('change', e=>{
+    const cb = e.target.closest('.wsel input[type=checkbox]');
+    if (!cb) return;
     const wid = cb.dataset.wid;
     if (cb.checked) worksSelected.add(wid); else worksSelected.delete(wid);
     loadWorks();
-  }));
-  container.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click', async e=>{
-    e.stopPropagation();
-    const wid=b.dataset.wid, act=b.dataset.act;
-    if (act==='discuss'){ continueDiscussion(wid); }
-    else if (act==='rediscuss'){ rediscuss(wid); }
-    else if (act==='data'){ enterMetrics(wid); }
-    else if (act==='archive'){ archiveWork(wid); }
-    else if (act==='restore'){ restoreWork(wid); }
-    else if (act==='delete'){ deleteWork(wid); }
-  }));
+  });
+}
+// 作品视频外链：优先显式 video_url，否则按 platform + video_id 拼平台模板；无则返回空串
+function workVideoUrl(w){
+  if (w && w.video_url) return String(w.video_url);
+  if (w && w.video_id) {
+    const p = String(w.platform || '').toLowerCase();
+    if (p.indexOf('douyin') >= 0 || p === '抖音') return 'https://www.douyin.com/video/' + w.video_id;
+    if (p.indexOf('kuaishou') >= 0 || p === '快手') return 'https://www.kuaishou.com/short-video/' + w.video_id;
+    if (p.indexOf('xiaohongshu') >= 0 || p.indexOf('小红书') >= 0) return 'https://www.xiaohongshu.com/explore/' + w.video_id;
+    return 'https://www.douyin.com/video/' + w.video_id;
+  }
+  return '';
+}
+// 发布时间统一格式化 MM-DD HH:mm（优先 published_at，退回 updated_at / created_at）
+function workTimeStr(w){
+  const t = w.published_at || w.updated_at || w.created_at;
+  if (!t) return '';
+  const m = String(t).match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  if (m) return m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5];
+  return String(t).slice(0, 16);
 }
 function workCard(w){
   const m=w.metrics||{};
@@ -3273,15 +3597,21 @@ function workCard(w){
   ].filter(Boolean).join('　') || '尚无效果数据';
   const acts = '<button class="go" data-act="discuss" data-wid="'+w.id+'" title="恢复上次讨论现场">继续讨论</button>' +
     '<button data-act="rediscuss" data-wid="'+w.id+'" title="用当前作品初稿重新发起一轮完整讨论">重新讨论</button>' +
-    (w.status!=='archived' ? '<button data-act="data" data-wid="'+w.id+'">录入数据</button><button data-act="archive" data-wid="'+w.id+'">归档</button>'
+    (w.status!=='archived' ? '<button data-act="data" data-wid="'+w.id+'">录入数据</button><button data-act="archive" data-wid="'+w.id+'" title="收进已完成分组，不删除任何数据">收起</button>'
                             : '<button data-act="restore" data-wid="'+w.id+'">恢复</button>') +
     '<button class="danger" data-act="delete" data-wid="'+w.id+'" title="永久删除这个作品">删除</button>';
+  // 打开视频：有 video_url 或 platform+video_id 可点外链；无则置灰
+  const vurl = workVideoUrl(w);
+  const vbtn = vurl
+    ? '<button class="wvideo" title="打开视频外链" onclick="event.stopPropagation();window.open(\'' + esc(vurl) + '\', \'_blank\')">打开视频</button>'
+    : '<button class="wvideo off" disabled title="暂无视频链接">打开视频</button>';
+  const timeStr = workTimeStr(w);
   return '<div class="work-card" data-wid="'+w.id+'">' +
     '<div class="wsel"><input type="checkbox" data-wid="'+w.id+'"' + (worksSelected.has(w.id)?' checked':'') + '><span class="cb-lbl">选择</span></div>' +
-    '<div class="wtop"><span class="wtitle">'+esc(w.title||'未命名')+'</span><span class="badge-st st-'+esc(w.status)+'">'+esc(STATUS_LABELS[w.status]||w.status)+'</span></div>' +
+    '<div class="wtop"><span class="wtitle" title="'+esc(w.title||'未命名')+'">'+esc(w.title||'未命名')+'</span><span class="badge-st st-'+esc(w.status)+'">'+esc(STATUS_LABELS[w.status]||w.status)+'</span>' + vbtn + '</div>' +
     '<div class="wsum">'+esc((w.final||w.draft||'').slice(0,90))+'…</div>' +
     '<div class="wmeta">'+meta+'</div>' +
-    '<div class="wmeta muted">'+esc((w.created_at||'').slice(0,16))+'</div>' +
+    '<div class="wmeta muted">' + (timeStr ? '<span>🕐 ' + esc(timeStr) + '</span>' : '') + '</div>' +
     '<div class="wacts">'+acts+'</div></div>';
 }
 function avgScore(scores){
@@ -3365,6 +3695,19 @@ async function restoreSession(sd){
 }
 async function enterMetrics(wid){
   // 录入作品数据：文件提交（xlsx+txt 自动解析） / 手动填写（直接填指标数值）
+  // 已上传文件区：读 /api/works/<wid> 的 uploaded_files 渲染绿色标签（旧作品无此字段按空处理）
+  let uploadedHtml = '<span class="muted">还没有上传过数据文件</span>';
+  try {
+    const wd = await fetch('/api/works/' + wid).then(r => r.json());
+    const uf = (wd.ok && wd.work && wd.work.uploaded_files) || {};
+    const names = Object.keys(uf).map(k => {
+      const v = uf[k];
+      return typeof v === 'string' ? v : ((v && v.name) || '');
+    }).filter(Boolean);
+    if (names.length) {
+      uploadedHtml = '已上传：' + names.map(n => '<span class="up-file-tag">' + esc(n) + '</span>').join(' ');
+    }
+  } catch (_) {}
   const slots = [
     {key:'traffic', label:'<span class="ico" style="width:13px;height:13px"><svg><use href="#ic-chart"/></svg></span> 流量数据', desc:'播放量、点赞量、评论量、分享量、收藏量、完播率、2s跳出率', kind:'xlsx'},
     {key:'content', label:'<span class="ico" style="width:13px;height:13px"><svg><use href="#ic-trend"/></svg></span> 内容吸引力分析', desc:'完播率、平均播放时长、2s跳出率、5s完播率、平均播放占比', kind:'xlsx'},
@@ -3394,10 +3737,16 @@ async function enterMetrics(wid){
   const mmHtml = '<div class="up-mm-grid">' + mmFields.map(f =>
     '<div class="mfield"><label>' + esc(f.k) + '</label><input type="text" data-mm="' + esc(f.k) + '" placeholder="' + esc(f.ph) + '"></div>'
   ).join('') + '</div>' +
+  // 发布信息（Q4：卡片发布时间 + 一键打开视频）
+  '<div class="up-mm-grid" style="margin-top:8px">' +
+    '<div class="mfield"><label>发布时间（可选）</label><input type="text" data-pub="published_at" placeholder="例如 2026-08-24 18:30"></div>' +
+    '<div class="mfield"><label>视频链接（可选）</label><input type="text" data-pub="video_url" placeholder="粘贴发布后的视频链接，作品卡可一键打开"></div>' +
+  '</div>' +
   '<div class="muted" style="margin-top:10px">支持数字、百分比小数（0~1 自动转 %）、带 w 的万单位。保存后作品标记为「已发布」。</div>';
   box.innerHTML = '<div class="modal-box up-box">' +
     '<div class="modal-title">录入作品数据</div>' +
     '<div class="modal-sub">两种方式任选：提交数据文件自动解析，或手动填写关键指标。至少填一项即可。</div>' +
+    '<div class="up-uploaded" id="upUploaded">' + uploadedHtml + '</div>' +
     '<div class="up-tabs">' +
       '<button class="up-tab active" data-tab="file"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-folder"/></svg></span> 文件提交</button>' +
       '<button class="up-tab" data-tab="manual"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-edit"/></svg></span> 手动填写</button>' +
@@ -3449,6 +3798,7 @@ async function enterMetrics(wid){
         if (d.analysis_started) showToast('📉 数据专员阿数已开始自动分析留存，完成后在作品详情/数据复盘查看');
         (d.warnings || []).forEach(w => showToast('⚠ ' + w));
         loadWorks();
+        _maybeAskExpertReview(wid, d.metrics || {});   // 多专家联动：数据较全则自动问复盘
       } catch (e) {
         okBtn.disabled = false; okBtn.textContent = '解析并保存';
         showToast('⚠ 导入失败: ' + e.message);
@@ -3456,15 +3806,19 @@ async function enterMetrics(wid){
     } else {
       const metrics = {};
       box.querySelectorAll('[data-mm]').forEach(inp => { if (inp.value.trim()) metrics[inp.dataset.mm] = inp.value.trim(); });
-      if (!Object.keys(metrics).length) { showToast('⚠ 请至少填写一项指标'); return; }
+      // 发布信息（Q4）：发布时间 + 视频链接，随指标一起保存
+      const publish = {};
+      box.querySelectorAll('[data-pub]').forEach(inp => { if (inp.value.trim()) publish[inp.dataset.pub] = inp.value.trim(); });
+      if (!Object.keys(metrics).length && !Object.keys(publish).length) { showToast('⚠ 请至少填写一项指标或发布信息'); return; }
       const okBtn = box.querySelector('[data-act=ok]');
       okBtn.disabled = true; okBtn.textContent = '保存中…';
       try {
-        const d = await post('/api/manual_metrics', { wid, metrics });
+        const d = await post('/api/manual_metrics', Object.assign({ wid, metrics }, publish));
         close();
         if (!d.ok) { showToast('⚠ ' + (d.error || '保存失败')); return; }
-        showToast('✅ 已保存 ' + Object.keys(metrics).length + ' 项指标');
+        showToast('✅ 已保存 ' + Object.keys(metrics).length + ' 项指标' + (Object.keys(publish).length ? ' + 发布信息' : ''));
         loadWorks();
+        _maybeAskExpertReview(wid, metrics);   // 多专家联动：数据较全则自动问复盘
       } catch (e) {
         okBtn.disabled = false; okBtn.textContent = '保存';
         showToast('⚠ 保存失败: ' + e.message);
@@ -3472,8 +3826,34 @@ async function enterMetrics(wid){
     }
   });
 }
+
+/* 多专家联动建议：数据录入较全后，自动问用户是否让专家团队复盘对比 */
+async function _maybeAskExpertReview(wid, metrics){
+  const m = metrics || {};
+  const coreKeys = ['播放量', '点赞量', '评论量', '分享量', '收藏量', 'likes', 'comments', 'forwards', 'saves', 'plays'];
+  const retentionKeys = ['完播率', '平均播放时长', '5秒完播率', 'completion'];
+  const coreCnt = coreKeys.filter(k => m[k] != null && String(m[k]).trim() !== '').length;
+  const retCnt = retentionKeys.filter(k => m[k] != null && String(m[k]).trim() !== '').length;
+  // 判定「数据较全」：核心四维 ≥3 且留存 ≥1（能支撑阿数做数据判级/留存归因）
+  if (coreCnt < 3 || retCnt < 1) return;
+  const f = await openModal({
+    title: '📊 数据已录入，要不要让专家团队复盘？',
+    sub: '你已录入 ' + Object.keys(m).length + ' 项数据。阿数可以逐句对照留存曲线做数据判级、阿记对照数据评估哪些采纳建议真的有效，帮你沉淀成下次写作的原则。',
+    fields: [
+      { name:'go', label:'下一步', type:'radio', value:'detail', options:[
+        { value:'detail', label:'打开作品详情，在「数据专员分析」区发起复盘' },
+        { value:'later', label:'先不用，稍后再说' }
+      ] }
+    ],
+    okText: '继续'
+  });
+  if (f && f.go === 'detail') {
+    openWorkDetail(wid);
+    showToast('已打开作品详情：点「留存」让阿数逐句归因，或点「复盘」让阿记评估采纳效果');
+  }
+}
+
 async function pickFile(kind){
-  // 桌面端：原生文件对话框（pywebview js_api）
   try {
     if (window.pywebview && window.pywebview.api && window.pywebview.api.pick_file) {
       const p = await window.pywebview.api.pick_file(kind);
@@ -3490,10 +3870,10 @@ async function pickFile(kind){
   });
 }
 async function archiveWork(wid){
-  const ok = await confirmDanger('归档这个作品？','归档后不再计入统计与专家贡献榜，可随时从「已归档」恢复。','归档');
+  const ok = await confirmDanger('收起这个作品？','收进已完成分组，不删除任何数据，可随时从「已归档」恢复。','收起');
   if (!ok) return;
   const r = await post('/api/works/'+wid+'/archive');
-  if (r.ok){ showToast('已归档'); loadWorks(); } else showToast('⚠ '+(r.error||'失败'));
+  if (r.ok){ showToast('已收进已完成分组'); loadWorks(); } else showToast('⚠ '+(r.error||'失败'));
 }
 async function restoreWork(wid){
   const r = await post('/api/works/'+wid+'/restore');
@@ -3529,19 +3909,18 @@ async function openWorkDetail(wid){
     '</div></div>' +
     '<div class="sec"><div class="sec-t"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-thumb"/></svg></span> 采纳记录（'+ (w.adoptions||[]).filter(a=>!a.revoked).length +'）</div>'+adopts+'</div>' +
     '<div class="sec"><div class="sec-t"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-star"/></svg></span> 评分</div>'+scores+'</div>' +
-    (w.review ? '<div class="sec"><div class="sec-t"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-chart"/></svg></span> 复盘结论</div><div class="box">实际分 '+fmtScore(w.review.actual_score)+'\n'+(w.review.summary||'')+'</div></div>' : '') +
+    (w.review ? '<div class="sec" id="dlReviewSec"><div class="sec-t"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-chart"/></svg></span> 复盘结论</div><div class="box">实际分 '+fmtScore(w.review.actual_score)+'\n'+(w.review.summary||'')+'</div></div>' : '') +
     '<div class="sec"><div class="sec-t"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-trend"/></svg></span> 效果数据</div><div class="box">'+renderMetrics(m)+'</div></div>' +
     (w.retention ? '<div class="sec"><div class="sec-t"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-trend"/></svg></span> 留存曲线</div><div class="box">'+esc(w.retention)+'</div></div>' : '') +
     (w.subtitle ? '<div class="sec"><div class="sec-t"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-video"/></svg></span> 字幕稿（'+w.subtitle.length+' 字）</div><div class="box">'+esc(w.subtitle)+'</div></div>' : '') +
-    '<div class="sec" id="dlRetentionSec"><div class="sec-t"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-search"/></svg></span> 数据专员分析</div><div class="box">'+(w.retention_report ? mdText(w.retention_report) : (w.analyzing ? '阿数正在分析中…' : '（提交字幕稿后会自动分析）'))+'</div></div>' +
+    '<div class="sec" id="dlRetentionSec"><div class="sec-t"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-search"/></svg></span> 数据专员分析</div><div class="box">'+(w.retention_report ? mdText(w.retention_report) : (w.analyzing ? '阿数正在分析中…' : '（提交字幕稿后会自动分析）'))+'</div><div style="margin-top:8px;text-align:right"><button class="btn-ghost" id="dlReanalyze" title="数据升级/换 prompt 后重新分析">🔄 重新分析</button></div></div>' +
     '<div class="dbtns">' +
       '<button class="primary" id="dlGo">继续讨论</button>' +
       '<button id="dlRediscuss">重新讨论</button>' +
-      '<button id="dlScore"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-star"/></svg></span> 评分</button>' +
       '<button id="dlReview"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-chart"/></svg></span> 复盘</button>' +
-      '<button id="dlRetention"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-trend"/></svg></span> 留存</button>' +
       '<button id="dlData">录入数据</button>' +
-      (w.status!=='archived' ? '<button class="danger" id="dlArchive">归档</button>' : '<button id="dlRestore">恢复</button>') +
+      (w.status!=='archived' ? '<button id="dlArchive" title="收进已完成分组，不删除任何数据">收起</button>' : '<button id="dlRestore">恢复</button>') +
+      '<button class="danger" id="dlDelete" title="永久删除这个作品">删除</button>' +
       '<button id="dlClose">关闭</button>' +
     '</div></div>';
   document.body.appendChild(drawer);
@@ -3567,13 +3946,49 @@ async function openWorkDetail(wid){
   }));
   drawer.querySelector('#dlGo').addEventListener('click', ()=>{ close(); continueDiscussion(w.id); });
   drawer.querySelector('#dlRediscuss').addEventListener('click', ()=>{ close(); rediscuss(w.id); });
-  drawer.querySelector('#dlScore').addEventListener('click', ()=>{ close(); workQuickAction('score', w); });
-  drawer.querySelector('#dlReview').addEventListener('click', ()=>{ close(); workQuickAction('review', w); });
-  drawer.querySelector('#dlRetention').addEventListener('click', ()=>{ close(); workQuickAction('retention', w); });
+  // 复盘不再依赖讨论会话：有复盘结论就滚动定位展示，没有则引导先录入数据
+  drawer.querySelector('#dlReview').addEventListener('click', ()=>{
+    const sec = drawer.querySelector('#dlReviewSec');
+    if (sec) {
+      try { sec.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(_){}
+      sec.style.transition = 'box-shadow .3s';
+      sec.style.boxShadow = '0 0 0 3px var(--primary)';
+      sec.style.borderRadius = '8px';
+      setTimeout(()=>{ sec.style.boxShadow = ''; }, 1800);
+    } else {
+      showToast('还没有讨论记录，可先录入数据，我会基于已录入数据帮你复盘');
+    }
+  });
   drawer.querySelector('#dlData').addEventListener('click', ()=>{ close(); enterMetrics(w.id); });
-  const arc=drawer.querySelector('#dlArchive'), res=drawer.querySelector('#dlRestore');
+  const arc=drawer.querySelector('#dlArchive'), res=drawer.querySelector('#dlRestore'), del=drawer.querySelector('#dlDelete');
   if (arc) arc.addEventListener('click', async ()=>{ close(); await archiveWork(w.id); });
   if (res) res.addEventListener('click', async ()=>{ close(); await restoreWork(w.id); });
+  if (del) del.addEventListener('click', async ()=>{ close(); await deleteWork(w.id); });
+  // 重新分析：调后端 /api/works/<wid>/reanalyze（删 retention_report 后重跑，复盘 prompt 升级后用户重跑生效）
+  const reBtn = drawer.querySelector('#dlReanalyze');
+  if (reBtn) reBtn.addEventListener('click', async ()=>{
+    if (!confirm('确认重新跑数据专员分析？当前报告会被覆盖（约 30-60 秒）。')) return;
+    reBtn.disabled = true; reBtn.textContent = '⏳ 重跑中…';
+    try {
+      const d = await post('/api/works/' + w.id + '/reanalyze', {});
+      if (!d.ok) { showToast('⚠ ' + (d.error || '触发失败')); }
+      else {
+        showToast('🔄 已重新触发分析，约 30-60 秒出结果');
+        const secBox = drawer.querySelector('#dlRetentionSec .box');
+        if (secBox) secBox.innerHTML = '⏳ 阿数正在分析中…';
+        // 轮询直到出结果
+        const poll = setInterval(async ()=>{
+          const fresh = await fetch('/api/works/' + w.id).then(r=>r.json()).catch(()=>null);
+          if (fresh && fresh.ok && fresh.work && fresh.work.retention_report){
+            clearInterval(poll);
+            openWorkDetail(w.id);
+          }
+        }, 3000);
+        setTimeout(()=>clearInterval(poll), 180000);  // 最多轮询 3 分钟
+      }
+    } catch(e){ showToast('⚠ 请求失败：' + e.message); }
+    setTimeout(()=>{ reBtn.disabled = false; reBtn.textContent = '🔄 重新分析'; }, 1500);
+  });
   // 数据专员分析中 → 轮询直到出结果
   if (w.analyzing){
     const secBox = drawer.querySelector('#dlRetentionSec .box');
@@ -3591,29 +4006,6 @@ async function openWorkDetail(wid){
 }
 function fmtScore(s){ return (s===null||s===undefined) ? '未给分' : Number(s).toFixed(1); }
 
-async function workQuickAction(action, w){
-  // 从作品详情页直接发起：⭐ 评分 / 📊 复盘 / 📉 留存分析
-  const sid = w.session_id;
-  if (sid && sid !== currentSid){
-    try{
-      const sd = await fetch('/api/session/'+sid).then(r=>r.json());
-      if (sd.ok){ await restoreSession(sd); }
-    }catch(_){}
-  }
-  if (!currentSid){ showToast('⚠ 这个作品还没有讨论会话，请先点「继续讨论」或「重新讨论」'); return; }
-  currentWorkId = w.id;
-  currentWorkTitle = w.title || '';
-  switchView('chat');
-  if (action === 'score'){
-    const f = await openModal({ title:'⭐ 终稿评分', sub:'把最终发布的口播终稿贴进来，专家团队会匿名打分并给理由', fields:[{name:'content', label:'终稿', type:'textarea', rows:6, placeholder: w.final || '贴入终稿内容…'}], okText:'发送' });
-    if (f && f.content) startScore(f.content);
-  } else if (action === 'review'){
-    const f = await openModal({ title:'📊 效果复盘', sub:'贴实际数据：播放量、完播率、点赞、评论、转化、发布时间等', fields:[{name:'content', label:'数据', type:'textarea', rows:6, placeholder:'例如：播放量 12.5w，完播率 8.6%，点赞 3200…'}], okText:'发送' });
-    if (f && f.content) startReview(f.content);
-  } else if (action === 'retention'){
-    await startRetention();
-  }
-}
 function renderMetrics(m){
   const rows=[
     ['播放量',m.plays],['完播率',m.completion!=null?m.completion+'%':null],
@@ -3624,7 +4016,8 @@ function renderMetrics(m){
     ['点赞',m.likes],['评论',m.comments],['分享',m.shares],['收藏',m.saves||m.saved],
     ['涨粉量',m.followers!=null?m.followers:null],['涨粉率',m.followers_rate!=null?m.followers_rate+'%':null]
   ];
-  return rows.filter(r=>r[1]!=null).map(r=>r[0]+'：<b>'+r[1]+'</b>').join('　') || '（暂无数据）';
+  // 值可能来自用户手动录入的任意字符串，统一 esc 防存储型 XSS
+  return rows.filter(r=>r[1]!=null).map(r=>esc(r[0])+'：<b>'+esc(r[1])+'</b>').join('　') || '（暂无数据）';
 }
 
 /* ================= 数据复盘 ================= */
@@ -4116,14 +4509,14 @@ async function apiSetRender(){
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b><span class="ico" style="width:14px;height:14px"><svg><use href="#ic-speaker"/></svg></span> 配音（IndexTTS）</b>' +
         st(!!tts.has_token, tts.has_token ? '已配置（' + esc(tts.token_masked) + '）' : '未配置') + '</div>' +
       '<div class="muted" style="font-size:12px;margin:6px 0">IndexTTS-2.5 音色克隆。浏览器已登录 modelscope.cn 时可一键自动获取，无需手动找令牌。</div>' +
-      /* --- 推理后端选择（默认 auto：自动判断，能本地就跑本地，否则回退在线） --- */
+      /* --- 推理后端固定为「自动」，不暴露给用户选择（在线优先，稳定压倒一切） --- */
       '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0">' +
         '<span class="muted" style="font-size:12px">推理后端：</span>' +
-        '<select id="apiTtsBackend" style="flex:1;min-width:220px">' +
-          '<option value="auto"' + ((tts.backend || 'auto') === 'auto' ? ' selected' : '') + '>⚙️ 自动（推荐：本地已装则本地，否则在线）</option>' +
-          '<option value="modelscope"' + (tts.backend === 'modelscope' ? ' selected' : '') + '>🌐 在线（ModelScope 云端，需 Token）</option>' +
-          '<option value="local"' + (tts.backend === 'local' ? ' selected' : '') + '>💻 本地（IndexTTS 本机显卡推理，免 Token）</option>' +
-        '</select>' +
+        '<span id="apiTtsBackendLabel" style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:6px;background:rgba(85,170,255,0.12);color:#5ac8fa;font-size:13px;font-weight:500">⚙️ 自动模式（在线优先：最快最稳，约 7 秒出结果）</span>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--c-text-sub);margin:-4px 0 6px">' +
+        '自动模式默认走 ModelScope 在线配音（实测约 7 秒出结果）。若想用本机显卡本地生成，可告诉我打开本地模式；' +
+        '本地失败会自动切回在线，保证配音总能完成。' +
       '</div>' +
       '<div id="apiGpuInfo" style="font-size:12px;margin:2px 0 8px"></div>' +
       '<div class="mon-add">' +
@@ -4146,11 +4539,15 @@ async function apiSetRender(){
           (gp.compute_cap ? ' · 计算能力 ' + esc(gp.compute_cap) : '');
         if (gp.compute_cap && parseFloat(gp.compute_cap) >= 9.0) {
           gpuHtml += tts.local_ready
-            ? '<br>✅ <b>本地 IndexTTS 已安装</b>，自动模式下将优先本地推理（免费、免排队）'
+            ? '<br>✅ <b>本地 IndexTTS 已安装</b>，自动模式下会实时看 GPU 显存/利用率，不卡才走本地（免费、免排队）'
             : '<br>⚙️ 显卡支持本地 IndexTTS（RTX 50系），但尚未安装本地环境——<b>自动模式下会先走在线</b>，装好本地后自动切换';
         } else {
           gpuHtml += '<br>⚠️ 显卡较老，本地推理可能较慢';
         }
+        // 显存 + 利用率实时展示，让用户看到自动判断依据
+        const freePct = gp.vram_gb ? Math.round((gp.vram_free_gb / gp.vram_gb) * 100) : 0;
+        gpuHtml += '<br>📊 实时：显存 ' + (gp.vram_gb - gp.vram_free_gb).toFixed(1) + '/' + gp.vram_gb + 'GB（已用 ' + (100 - freePct) + '%）' +
+          (typeof gp.util_pct === 'number' ? ' · GPU 利用率 ' + gp.util_pct + '%' : '');
         gpuEl.innerHTML = gpuHtml;
       } else {
         gpuEl.innerHTML = '<span class="muted">⚠️ 未检测到 NVIDIA 显卡，本地 IndexTTS 将回退到 CPU 推理（较慢），建议在线模式。</span>';
@@ -4170,10 +4567,8 @@ async function apiSetRender(){
       if (!key) { showToast('请先粘贴 API Key'); btn.disabled = false; return; }
       r = await post('/api/settings/asr', { api_key: key });
     } else {
-      const backend = $('apiTtsBackend') ? $('apiTtsBackend').value : 'modelscope';
+      const backend = 'auto'; // 固定为自动，用户无需选择
       const token = $('apiTtsToken').value.trim();
-      // 本地后端不强制要 Token；在线后端才需要
-      if (backend === 'modelscope' && !token) { showToast('在线后端请先粘贴 Token，或改选「本地推理」'); btn.disabled = false; return; }
       r = await post('/api/settings/tts', { token, backend });
       if (r.ok) $('apiTtsToken').value = '';
     }
@@ -4356,39 +4751,43 @@ let monitorPollTimer = null;
 async function loadMonitor() {
   const v = $('view-monitor');
   v.innerHTML =
-    '<div class="card" style="margin-bottom:14px">' +
-      '<div class="card-title">📡 对标账号监控</div>' +
-      '<div class="mon-add">' +
-        '<input id="monUrl" placeholder="粘贴抖音主页链接，自动抓取昵称和粉丝数" />' +
-        '<button class="btn-primary" id="monAdd">＋ 添加</button>' +
-        '<button class="btn-primary" id="monFetch" style="background:#0a84ff">⚡ 立即抓取</button>' +
+    // 页面头：标题 + 说明 + 监控账号入口
+    '<div class="card mon-hero" style="margin-bottom:14px;padding:18px 20px;background:linear-gradient(135deg,var(--c-card),var(--c-bg-soft));border:none">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">' +
+        '<div>' +
+          '<div style="font-weight:700;font-size:18px;letter-spacing:.2px">📡 对标监控</div>' +
+          '<div class="muted" style="font-size:12px;color:var(--c-text-mute);margin-top:4px;line-height:1.6">盯别人的高赞视频，提炼「今天值得跟的选题」</div>' +
+        '</div>' +
+        '<button class="mon-acc-btn" id="monAccToggle" style="margin-top:0">👥 监控账号 <span id="monAccCount" style="background:var(--primary);color:#fff;border-radius:10px;padding:0 7px;font-size:11px">0</span></button>' +
       '</div>' +
-      '<div class="muted" id="monResolveHint" style="font-size:12px;color:var(--c-text-mute)"></div>' +
-      '<div class="muted" style="font-size:12px;color:var(--c-text-mute)">粘贴主页链接后，系统自动抓取抖音昵称和粉丝数，无需手填备注名；已添加的账号可点「✏️」改备注、点昵称打开主页。监控范围：每个账号近 10 条视频 → 按点赞排序出「近 90 天」的高赞榜（自动去重搬运视频）。首次使用请先在 Chrome/Edge/Firefox 任一浏览器登录过抖音（自动读取 cookie）。</div>' +
-      '<div class="mon-progress" id="monProgressWrap" style="display:none"><div class="bar" id="monProgressBar"></div></div>' +
-      '<div class="muted" id="monProgressText" style="font-size:12px;color:var(--primary)"></div>' +
+      '<div class="mon-progress" id="monProgressWrap" style="display:none;margin-top:10px"><div class="bar" id="monProgressBar"></div></div>' +
+      '<div class="muted" id="monProgressText" style="font-size:12px;color:var(--primary);margin-top:4px"></div>' +
     '</div>' +
-    '<div id="monReport"></div>' +
-    '<div class="card" style="margin-bottom:14px">' +
-      '<div class="card-title">🎯 选题雷达 · 内置晨报</div>' +
-      '<div class="muted" style="font-size:12px;color:var(--c-text-mute);margin-bottom:8px">把对标高赞榜 + 撞车检测 + AI 分析成「今日值得跟的选题 Top」，带口播切入角度。一键生成，落盘 <code>output/monitor/radar/</code>，可反复生成对比。</div>' +
+    // KPI 指标条
+    '<div class="mon-kpis" id="monKpis" style="display:none;margin-bottom:14px;gap:12px">' +
+      '<div class="card mon-kpi"><div class="v" id="kpiAcc">0</div><div class="l">监控账号</div></div>' +
+      '<div class="card mon-kpi"><div class="v" id="kpiVideos">0</div><div class="l">高赞视频</div></div>' +
+      '<div class="card mon-kpi"><div class="v" id="kpiDedup">0</div><div class="l">撞车去重</div></div>' +
+      '<div class="card mon-kpi"><div class="v" id="kpiTime">—</div><div class="l">上次抓取</div></div>' +
+    '</div>' +
+    // 选题雷达
+    '<div class="card" style="margin-bottom:14px;padding:16px 18px">' +
+      '<div class="card-title" style="margin-bottom:6px">🎯 选题雷达 · 内置晨报</div>' +
+      '<div class="muted" style="font-size:12px;color:var(--c-text-mute);margin-bottom:12px;line-height:1.6">把对标高赞榜 + 撞车检测 + AI 分析成「今日值得跟的选题 Top」，带口播切入角度。一键生成，落盘 <code>output/monitor/radar/</code>，可反复生成对比。</div>' +
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
         '<button class="btn-primary" id="radarGen" style="background:#ff9500">✨ 生成选题雷达</button>' +
         '<span class="muted" id="radarTip" style="font-size:12px;color:var(--c-text-mute)"></span>' +
       '</div>' +
-      '<div id="radarOut" style="margin-top:10px"></div>' +
+      '<div id="radarOut" style="margin-top:12px"></div>' +
     '</div>' +
-    '<button class="mon-acc-btn" id="monAccToggle">👥 监控账号（<span id="monAccCount">0</span>）</button>' +
+    // 高赞榜报告（含输入/添加/抓取 + 进度）
+    '<div id="monReport"></div>' +
+    // 监控账号抽屉
     '<div class="mon-drawer-mask" id="monDrawerMask"></div>' +
     '<div class="mon-drawer" id="monDrawer">' +
       '<div class="mon-drawer-hd"><span class="t">👥 监控账号（<span id="monAccCount2">0</span>）</span><button class="x" id="monDrawerClose" title="关闭">✕</button></div>' +
-      '<div class="mon-drawer-bd" id="monAccList"><div class="empty">还没有添加对标账号，先在上方粘贴主页链接</div></div>' +
-    '</div>' +
-    '<div id="monAutoBox"></div>';
-  $('monAdd').addEventListener('click', monAddAccount);
-  $('monFetch').addEventListener('click', monStartFetch);
-  $('monUrl').addEventListener('keydown', e => { if (e.key === 'Enter') monAddAccount(); });
-  $('monUrl').addEventListener('blur', monResolveAccount);
+      '<div class="mon-drawer-bd" id="monAccList"><div class="empty">还没有添加对标账号，先在下方高赞榜标题行粘贴主页链接</div></div>' +
+    '</div>';
   // 选题雷达：生成 + 展示最近一份
   $('radarGen').addEventListener('click', monGenRadar);
   monLoadRadarLatest();
@@ -4400,20 +4799,7 @@ async function loadMonitor() {
   mask.addEventListener('click', closeDrawer);
   await monLoadAccounts();
   await monLoadReport();
-  await monLoadAutoMonitor();
-  // 切回本页时恢复仍在运行的抓取任务状态（防重复触发、进度不丢失）
-  try {
-    const st = await fetch('/api/monitor/status').then(r => r.json());
-    const s = st.state || {};
-    if (s.running) {
-      $('monFetch').disabled = true;
-      $('monProgressWrap').style.display = 'block';
-      const p = s.progress || {};
-      $('monProgressBar').style.width = (p.total ? Math.round(p.done / p.total * 100) : 0) + '%';
-      $('monProgressText').textContent = '抓取中 ' + (p.done||0) + '/' + (p.total||0) + (p.current ? ' · 正在处理「' + p.current + '」' : '');
-      monPollStatus();
-    }
-  } catch (_) {}
+  monRefreshPreload();  // 若后台正在预加载文案（如启动时自动抓取后），进入页立即展示进度
 }
 
 async function monLoadAccounts() {
@@ -4430,32 +4816,21 @@ async function monLoadAccounts() {
     $('monAccList').innerHTML = list.map(a => {
       // 昵称：优先抓取到的真实昵称，其次备注名，再其次抖音号
       const name = a.nickname || a.note || a.douyin_id || '未命名账号';
-      const follower = (a.follower_count != null) ? fmtNum(a.follower_count) : '';
-      const subParts = [];
-      if (a.note && a.note !== name) subParts.push('备注：' + esc(a.note));
-      if (a.douyin_id) subParts.push('抖音号 ' + esc(a.douyin_id));
-      const sub = subParts.length ? subParts.join(' · ') : esc(a.home_url || '');
-      // 距上次抓取更新 X 条视频
-      let newHint = '';
-      if (a.new_count == null) {
-        newHint = '<span class="mon-newtag" style="background:var(--c-bg-soft);color:var(--c-text-mute)">尚未抓取</span>';
-      } else if (a.new_count === 0) {
-        newHint = '<span class="mon-newtag" style="background:var(--c-bg-soft);color:var(--c-text-mute)">距上次无新增</span>';
-      } else {
-        newHint = '<span class="mon-newtag">🆕 距上次更新 ' + a.new_count + ' 条视频</span>';
-      }
-      const last = a.last_fetched_at ? '<span class="muted" style="font-size:11px;margin-left:6px">' + esc(a.last_fetched_at.slice(5, 16)) + '</span>' : '';
+      const follower = (a.follower_count != null) ? fmtNum(a.follower_count) : '—';
       const homeUrl = esc(a.home_url || '');
-      return '<div class="mon-acc">' +
-        '<span class="avatar" style="background:#0a84ff">' + esc(name[0] || '？') + '</span>' +
-        '<div class="info">' +
-          '<div class="nm"><a href="' + homeUrl + '" target="_blank" rel="noopener" title="打开账号主页">' + esc(name) + '</a>' +
-          (follower ? ' <span class="muted" style="font-size:12px">👥 ' + follower + ' 粉</span>' : '') + '</div>' +
-          '<div class="sub">' + sub + '</div>' +
-          '<div class="mon-acc-tags">' + newHint + last + '</div>' +
+      return '<div class="mon-acc" style="justify-content:space-between">' +
+        '<div class="info" style="display:flex;align-items:center;gap:10px;min-width:0">' +
+          '<span class="avatar" style="background:#0a84ff">' + esc(name[0] || '？') + '</span>' +
+          '<div style="min-width:0">' +
+            '<div class="nm"><a href="' + homeUrl + '" target="_blank" rel="noopener" title="打开账号主页">' + esc(name) + '</a></div>' +
+            '<div class="sub">👥 ' + follower + ' 粉</div>' +
+          '</div>' +
         '</div>' +
-        '<button class="edit" data-id="' + a.id + '" title="改备注">✏️</button>' +
-        '<button class="del" data-id="' + a.id + '" title="移除">✕</button></div>';
+        '<div style="display:flex;gap:4px;flex:none">' +
+          '<button class="edit" data-id="' + a.id + '" title="改备注">✏️</button>' +
+          '<button class="del" data-id="' + a.id + '" title="移除">✕</button>' +
+        '</div>' +
+      '</div>';
     }).join('');
     $('monAccList').querySelectorAll('.del').forEach(b => b.addEventListener('click', () => monRemoveAccount(b.dataset.id)));
     $('monAccList').querySelectorAll('.edit').forEach(b => b.addEventListener('click', () => monEditAccount(b.dataset.id)));
@@ -4547,12 +4922,22 @@ async function monRemoveAccount(id) {
   else showToast('⚠ ' + (r.error || '移除失败'));
 }
 
+// 抓取进度人话文案：后端给了 fetched_count/new_count 显示「已抓 X 条 · 新增 Y 条」，否则只显示「已抓 X 条」
+// （绝不出现裸的 done/total 分数形式）
+function monFetchText(p){
+  p = p || {};
+  const fetched = (p.fetched_count != null) ? p.fetched_count : p.done;
+  let t = '已抓 ' + (fetched || 0) + ' 条';
+  if (p.new_count != null) t += ' · 新增 ' + p.new_count + ' 条';
+  return t;
+}
+
 async function monStartFetch() {
   const r = await post('/api/monitor/fetch');
   if (!r.ok) { showToast('⚠ ' + (r.error || '无法开始抓取')); return; }
   showToast('开始抓取 ' + r.total + ' 个账号…');
-  $('monFetch').disabled = true;
-  $('monProgressWrap').style.display = 'block';
+  const btn = $('monFetch'); if (btn) btn.disabled = true;
+  const wrap = $('monProgressWrap'); if (wrap) wrap.style.display = 'block';
   monPollStatus();
 }
 
@@ -4564,17 +4949,97 @@ async function monPollStatus() {
       const s = d.state || {};
       const p = s.progress || {};
       const pct = p.total ? Math.round(p.done / p.total * 100) : 0;
-      $('monProgressBar').style.width = pct + '%';
-      $('monProgressText').textContent = s.running
-        ? ('抓取中 ' + p.done + '/' + p.total + (p.current ? ' · 正在处理「' + p.current + '」' : ''))
-        : (pct === 100 ? '抓取完成' : (s.last_error ? '⚠ ' + s.last_error : ''));
-      if (!s.running) {
+      // monPollStatus 内联接管进度展示，停掉独立的 preload 轮询避免双写文字
+      if (preloadPollTimer) { clearInterval(preloadPollTimer); preloadPollTimer = null; }
+      const wrap = $('monProgressWrap'), bar = $('monProgressBar'), txt = $('monProgressText');
+      // 查询预加载文案进度：抓取跑完后会进入「预加载文案」阶段，此时文案进度接管文字
+      let pl = { running:false };
+      try { pl = (await fetch('/api/monitor/preload/status').then(r=>r.json())).preload || {}; } catch(_){}
+      const preloading = s.running && p.total && p.done >= p.total && !!pl.running;
+      if (bar) bar.style.width = pct + '%';
+      if (s.running) {
+        if (preloading) {
+          const total = pl.total || 0, done = pl.done || 0;
+          if (bar) bar.style.width = (total ? Math.round(done/total*100) : 0) + '%';
+          const cur = pl.current ? ' · 正在加载「' + pl.current.slice(0,24) + '」的文案' : '';
+          if (txt) txt.textContent = '⏳ 正在加载文案 ' + done + '/' + total + (pl.success ? ' · 已成功 ' + pl.success : '') + cur;
+          markPreloadCurrent(pl.current_aweme_id || '');
+        } else {
+          if (txt) txt.textContent = monFetchText(p) + (p.current ? ' · 正在处理「' + p.current + '」' : '');
+          clearPreloadMarks();
+        }
+      } else {
         clearInterval(monitorPollTimer); monitorPollTimer = null;
-        $('monFetch').disabled = false;
-        if (!s.last_error) { await monLoadReport(); await monLoadAccounts(); }
+        const mbtn = $('monFetch'); if (mbtn) mbtn.disabled = false;
+        if (pl.running) {
+          // 抓取任务刚结束但预加载仍在后台跑：继续展示文案进度
+          const total = pl.total || 0, done = pl.done || 0;
+          const cur = pl.current ? ' · 正在加载「' + pl.current.slice(0,24) + '」的文案' : '';
+          if (txt) txt.textContent = '⏳ 正在加载文案 ' + done + '/' + total + cur;
+          markPreloadCurrent(pl.current_aweme_id || '');
+        }
+        if (s.last_error) {
+          if (txt) txt.textContent = '⚠ 抓取失败：' + s.last_error;
+          showToast('⚠ 抓取失败：' + s.last_error);
+        }
+        await monLoadReport(); await monLoadAccounts();
+        monRefreshPreload();  // 抓取结束后（可能正在预加载文案），开始轮询文案进度
       }
     } catch (_) {}
   }, 1200);
+}
+
+// 独立轮询预加载文案进度（用于「没有活跃抓取轮询、但后台在预加载文案」时，
+// 例如启动时自动抓取后正在补文案，用户切进监控页）。若正在抓取，monPollStatus 已内联处理，
+// 这里只负责兜底展示 + 给当前视频打「⏳ 正在加载文案」角标。
+let preloadPollTimer = null;
+async function monRefreshPreload() {
+  if (preloadPollTimer) return;  // 已在轮询，避免重复
+  preloadPollTimer = setInterval(async () => {
+    try {
+      const d = await fetch('/api/monitor/preload/status').then(r => r.json());
+      const pl = d.preload || {};
+      if (!pl.running) {
+        clearInterval(preloadPollTimer); preloadPollTimer = null;
+        clearPreloadMarks();
+        const txt2 = $('monProgressText');
+        if (txt2 && /正在加载文案/.test(txt2.textContent || '')) txt2.textContent = '文案预加载完成';
+        return;
+      }
+      const total = pl.total || 0, done = pl.done || 0;
+      const bar = $('monProgressBar'), wrap = $('monProgressWrap'), txt = $('monProgressText');
+      if (wrap) wrap.style.display = 'block';
+      if (bar) bar.style.width = (total ? Math.round(done/total*100) : 0) + '%';
+      const cur = pl.current ? ' · 正在加载「' + pl.current.slice(0,24) + '」的文案' : '';
+      if (txt) txt.textContent = '⏳ 正在加载文案 ' + done + '/' + total + (pl.success ? ' · 已成功 ' + pl.success : '') + cur;
+      const btn = $('monFetch');
+      if (btn) btn.disabled = true;
+      markPreloadCurrent(pl.current_aweme_id || '');
+    } catch (_) {}
+  }, 1500);
+}
+
+// 给正在预加载文案的视频行加高亮 + 「正在加载」角标
+function markPreloadCurrent(awemeId) {
+  clearPreloadMarks();
+  if (!awemeId) return;
+  const box = $('monReport');
+  if (!box) return;
+  const td = box.querySelector('.mon-video-desc[data-aweme-id="' + awemeId + '"]');
+  if (!td) return;
+  td.classList.add('mon-preloading');
+  // 若已有角标则跳过
+  if (td.querySelector('.mon-load-badge')) return;
+  const badge = document.createElement('span');
+  badge.className = 'mon-load-badge';
+  badge.textContent = '⏳ 文案加载中…';
+  td.appendChild(badge);
+}
+function clearPreloadMarks() {
+  const box = $('monReport');
+  if (!box) return;
+  box.querySelectorAll('.mon-video-desc.mon-preloading').forEach(td => td.classList.remove('mon-preloading'));
+  box.querySelectorAll('.mon-load-badge').forEach(b => b.remove());
 }
 
 // ---- 选题潜力打分（四基因规则，纯前端，不调LLM）----
@@ -4610,81 +5075,109 @@ function scoreTopic(desc, digg, comment) {
   const grade = score >= 8 ? 'high' : score >= 5 ? 'mid' : 'low';
   return { score, labels, grade, gCount };
 }
-// 潜力分徽章 HTML（评分 + 命中基因标签，tooltip 说明）
+// 潜力分徽章：仅显示分数，命中基因放 tooltip（避免表格列被标签撑乱）
 function topicScoreBadge(v) {
   const s = scoreTopic(v.desc, v.digg_count, v.comment_count);
   const color = s.grade === 'high' ? '#e23a3a' : s.grade === 'mid' ? '#f5a623' : '#b0b0b0';
   const geneTip = s.labels ? ('命中基因：' + s.labels) : '未命中明显爆款基因（可能偏干货/小众）';
   return '<span class="topic-score" title="' + esc(geneTip + ' · ' + s.score + '分，基于标题四基因+互动数据估算，仅作选题参考') + '" style="display:inline-flex;align-items:center;gap:4px;cursor:help">' +
     '<span style="background:' + color + ';color:#fff;border-radius:6px;padding:2px 7px;font-weight:700;font-size:12px;min-width:22px;text-align:center">' + s.score + '</span>' +
-    (s.labels ? '<span class="muted" style="font-size:11px;color:' + color + '">' + esc(s.labels) + '</span>' : '') +
     '</span>';
 }
 
 async function monLoadReport() {
   const box = $('monReport');
+  const kpis = $('monKpis');
   try {
     const d = await fetch('/api/monitor/report').then(r => r.json());
     const rp = d.report;
-    if (!rp) { box.innerHTML = ''; return; }
     let html = '';
-    // 高赞榜（近 90 天）
-    const top = rp.top_videos || [];
+    // KPI 指标条
+    if (rp && kpis) {
+      kpis.style.display = 'grid';
+      const accKpi = $('kpiAcc'), vKpi = $('kpiVideos'), dKpi = $('kpiDedup'), tKpi = $('kpiTime');
+      if (accKpi) { const ac = await fetch('/api/monitor/accounts').then(r=>r.json()).catch(()=>({})); accKpi.textContent = ((ac&&ac.accounts)||[]).length; }
+      if (vKpi) vKpi.textContent = (rp.top_videos || []).length;
+      if (dKpi) dKpi.textContent = (rp.dedup_hits || 0);
+      if (tKpi) tKpi.textContent = (rp.fetched_at || '—').slice ? (rp.fetched_at||'').slice(5,16) : (rp.fetched_at||'—');
+    }
+    // 高赞榜卡片：标题行永远带输入/添加/抓取
+    const top = rp ? (rp.top_videos || []) : [];
     html += '<div class="card" style="margin-bottom:14px">' +
-      '<div class="card-title">🏆 高赞视频榜（近 90 天 · Top ' + top.length + ' · 去重 ' + (rp.dedup_hits || 0) + ' 条搬运）</div>';
+      '<div class="card-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px">' +
+        '<span>🏆 高赞视频榜 · 每个账号近 10 条里最高赞的一条</span>' +
+        '<div class="mon-add" style="margin:0;flex:1;min-width:260px;max-width:520px">' +
+          '<input id="monUrl" placeholder="粘贴抖音主页链接，自动识别昵称 / 粉丝数" style="flex:1 1 180px" />' +
+          '<button class="btn-primary" id="monAdd">＋ 添加</button>' +
+          '<button class="btn-primary" id="monFetch" style="background:#0a84ff">⚡ 抓取</button>' +
+        '</div>' +
+      '</div>' +
+      // 快照时间戳 + 榜单规则一句话公示（数据可信度来自时间透明）
+      '<div class="muted" style="font-size:11.5px;color:var(--c-text-sub);margin-bottom:8px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">' +
+        (rp && rp.fetched_at_rel
+          ? '<span title="抓取时间：' + esc(rp.fetched_at || '') + '">🕐 更新于 ' + esc(rp.fetched_at_rel) + '</span>'
+          : (rp && rp.fetched_at ? '<span>🕐 抓取于 ' + esc(String(rp.fetched_at).slice(5, 16)) + '</span>' : '')) +
+        '<span>📋 规则：每账号取近 10 条里点赞最高的一条</span>' +
+        (rp && rp.dedup_hits ? '<span>🔁 已过滤撞车 ' + rp.dedup_hits + ' 条</span>' : '') +
+      '</div>' +
+      '<div class="muted" id="monResolveHint" style="font-size:12px;color:var(--c-text-mute);margin-bottom:8px"></div>' +
+      // 抓取失败账号黄条：不静默吞掉（历史 bug：账号抓失败榜单里凭空消失，用户无提示）
+      (rp && rp.fetch_errors && rp.fetch_errors.length
+        ? '<div style="background:#fff7e6;border:1px solid #f0d9a8;border-radius:8px;padding:8px 12px;font-size:12px;color:#8a5a00;margin-bottom:8px">⚠ 以下账号抓取失败（本次未出现在榜单）：' +
+          rp.fetch_errors.slice(0, 5).map(e => esc(e.note || '') + '（' + esc(e.error || '未知错误') + '）').join('；') +
+          (rp.fetch_errors.length > 5 ? ' 等共 ' + rp.fetch_errors.length + ' 个' : '') + '</div>'
+        : '') +
+      '<div class="mon-progress" id="monProgressWrap" style="display:none;margin-bottom:8px"><div class="bar" id="monProgressBar"></div></div>' +
+      '<div class="muted" id="monProgressText" style="font-size:12px;color:var(--primary);margin-bottom:8px"></div>';
     if (top.length) {
-      html += '<div class="table-wrap"><table class="mon-table"><tr><th></th><th>账号</th><th>视频标题</th><th class="num">潜力</th><th class="num">点赞</th><th class="num">评论</th><th class="num">发布时间</th></tr>' +
-        top.map((v, i) => {
+      // 每个账号只保留近 10 条里点赞最高的一条
+      const best = {};   // account -> best video
+      for (const v of top) {
+        const a = v.author_nickname || '未命名';
+        if (!best[a] || (v.digg_count || 0) > (best[a].digg_count || 0)) {
+          best[a] = v;
+        }
+      }
+      const rows = Object.keys(best).map(a => best[a]);
+      rows.sort((x, y) => (y.digg_count || 0) - (x.digg_count || 0));
+      html += '<div class="table-wrap"><table class="mon-table"><tr><th style="width:38px"></th><th style="width:120px">账号</th><th>最高赞视频</th><th class="num" style="width:70px">点赞</th></tr>' +
+        rows.map((v, i) => {
           const rank = i === 0 ? 'r1' : i === 1 ? 'r2' : i === 2 ? 'r3' : '';
+          const fullDesc = v.desc || '（无文字）';
           return '<tr><td><span class="mon-rank ' + rank + '">' + (i + 1) + '</span></td>' +
-            '<td style="white-space:nowrap">' + esc(v.author_nickname || '') + '</td>' +
-            '<td class="mon-video-desc" data-aweme-id="' + esc(v.aweme_id || '') + '" data-transcript="' + esc((v.transcript && v.transcript.text) ? v.transcript.text : '') + '" data-transcript-src="' + esc((v.transcript && v.transcript.source) ? v.transcript.source : '') + '" data-digg="' + (v.digg_count || 0) + '" data-comment="' + (v.comment_count || 0) + '" data-share="' + (v.share_count || 0) + '" title="点击查看视频文案（可编辑/洗稿）" onclick="monShowDesc(this)">' + esc(v.desc || '（无文字）') + '</td>' +
-            '<td class="num" style="white-space:nowrap">' + topicScoreBadge(v) + '</td>' +
-            '<td class="digg">' + fmtNum(v.digg_count || 0) + '</td>' +
-            '<td class="num">' + fmtNum(v.comment_count || 0) + '</td>' +
-            '<td class="num" style="white-space:nowrap;color:var(--c-text-mute);font-size:12px">' + esc((v.create_time || '').slice(5, 16)) + '</td></tr>';
+            '<td style="white-space:nowrap;font-weight:600;max-width:120px;overflow:hidden;text-overflow:ellipsis">' + esc(v.author_nickname || '') + '</td>' +
+            '<td class="mon-video-desc" data-aweme-id="' + esc(v.aweme_id || '') + '" data-transcript="' + esc((v.transcript && v.transcript.text) ? v.transcript.text : '') + '" data-transcript-src="' + esc((v.transcript && v.transcript.source) ? v.transcript.source : '') + '" data-digg="' + (v.digg_count || 0) + '" data-comment="' + (v.comment_count || 0) + '" data-share="' + (v.share_count || 0) + '" data-collect="' + (v.collect_count || 0) + '" title="' + esc(fullDesc) + ' · ' + esc((v.create_time || '').slice(0,16)) + '" onclick="monShowDesc(this)">' + esc(fullDesc) + '</td>' +
+            '<td class="digg">' + fmtNum(v.digg_count || 0) + '</td></tr>';
         }).join('') + '</table></div>';
     } else {
-      html += '<div class="empty">暂无数据，点击「立即抓取」</div>';
+      html += '<div class="empty">暂无数据，点击右上「⚡ 抓取」开始</div>';
     }
     html += '</div>';
-    // 账号一览（账号 + 粉丝数 + 近期爆款，点账号名打开主页、点爆款标题看文案）
-    const accTop = rp.account_top || [];
-    let accRows = '';
-    accTop.forEach(b => {
-      const fc = fmtNum(b.follower_count || 0);
-      const hu = esc(b.home_url || '');
-      const nick = esc(b.nickname || '');
-      // 近期爆款（该账号点赞≥1万的视频，最多 3 条，点开看文案/洗稿）
-      const tops = (b.top || []);
-      let topCell = '';
-      if (tops.length) {
-        topCell = tops.map(v => {
-          return '<div class="mon-acct-vid" data-aweme-id="' + esc(v.aweme_id || '') + '" title="点击查看视频文案" onclick="monAcctOpenVid(this, event)">' +
-            '<span class="mav-t">' + esc(v.desc || '（无文字）') + '</span>' +
-            '<span class="mav-d">' + fmtNum(v.digg_count || 0) + ' 赞</span>' +
-            '</div>';
-        }).join('');
-      } else {
-        topCell = '<span class="muted" style="font-size:12px">暂无过万视频</span>';
-      }
-      accRows += '<tr>' +
-        '<td style="font-weight:600;vertical-align:middle">' +
-          (hu
-            ? '<a class="mon-acct-link" href="' + hu + '" target="_blank" rel="noopener" title="点击打开该账号主页">' + nick + '</a>'
-            : nick) +
-        '</td>' +
-        '<td class="num" style="vertical-align:middle">' + fc + '</td>' +
-        '<td style="vertical-align:middle">' + topCell + '</td>' +
-        '</tr>';
-    });
-    html += '<div class="card"><div class="card-title">📊 账号一览（共 ' + accTop.length + ' 个监控账号 · 点账号名打开主页，点爆款标题看文案）</div>' +
-      '<div class="table-wrap"><table class="mon-table"><tr><th>账号</th><th class="num">粉丝数</th><th>近期爆款（点赞≥1万）</th></tr>' +
-      accRows +
-      '</table></div>' +
-      (rp.fetched_at ? '<div class="muted" style="font-size:12px;margin-top:10px">抓取时间：' + esc(rp.fetched_at) + '</div>' : '') +
-      '</div>';
     box.innerHTML = html;
+    // 重新绑定：标题行里的添加/抓取/输入回车
+    const addBtn = $('monAdd'), fetchBtn = $('monFetch'), urlInput = $('monUrl');
+    if (addBtn) addBtn.addEventListener('click', monAddAccount);
+    if (fetchBtn) fetchBtn.addEventListener('click', monStartFetch);
+    if (urlInput) {
+      urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') monAddAccount(); });
+      urlInput.addEventListener('blur', monResolveAccount);
+    }
+    // 检测后台正在跑的抓取任务，恢复进度条
+    try {
+      const st = await fetch('/api/monitor/status').then(r => r.json());
+      const s = st.state || {};
+      if (s.running) {
+        if (fetchBtn) fetchBtn.disabled = true;
+        const wrap = $('monProgressWrap');
+        if (wrap) wrap.style.display = 'block';
+        const p = s.progress || {};
+        const bar = $('monProgressBar');
+        if (bar) bar.style.width = (p.total ? Math.round(p.done / p.total * 100) : 0) + '%';
+        const txt = $('monProgressText');
+        if (txt) txt.textContent = monFetchText(p) + (p.current ? ' · 正在处理「' + p.current + '」' : '');
+        monPollStatus();
+      }
+    } catch (_) {}
   } catch (e) {
     box.innerHTML = '<div class="empty">报告加载失败：' + esc(e.message) + '</div>';
   }
@@ -4783,13 +5276,18 @@ function monShowDesc(el) {
     const t = area.value.trim();
     if (!t) { showToast('⚠ 文案为空，无法洗稿'); return; }
     rwPrefillOriginal = t;
-    // 四维数据一键带入：点赞/评论/转发（收藏当前抓取层未取到，留空可选填）
+    // 四维数据一键带入：点赞/评论/转发/收藏
     rwPrefillMetrics = {
       likes: el.getAttribute('data-digg') || '',
       comments: el.getAttribute('data-comment') || '',
       forwards: el.getAttribute('data-share') || '',
-      saves: ''
+      saves: el.getAttribute('data-collect') || ''
     };
+    // 素材来源（Q4：保存为作品后能一键打开原视频）
+    const awemeId = el.getAttribute('data-aweme-id') || '';
+    rwPrefillSource = awemeId
+      ? { source_url: 'https://www.douyin.com/video/' + awemeId, source_platform: 'douyin', source_video_id: awemeId }
+      : {};
     close();
     switchView('rewrite');
     setTimeout(() => newRewrite(), 350);
@@ -4827,12 +5325,14 @@ function monShowDesc(el) {
           (r.desc ? ' · 原标题：' + r.desc.slice(0, 30) : '') +
           ' · 共 ' + r.text.length + ' 字（可编辑，改完直接「拿去洗稿」）';
       } else {
-        area.value = desc;
-        sub.textContent = '⚠ ' + (r.error || '获取文案失败') + ' · 已回退显示标题/简介';
+        // 失败不回填标题冒充文案（历史 bug：用户差点把标题拿去洗稿），置空并明确提示
+        area.value = '';
+        sub.textContent = '⚠ ' + (r.error || '获取文案失败') + '。文案为空，请不要直接拿去洗稿；' +
+          (desc && desc !== '（无文字）' ? '视频标题是：「' + desc + '」，可先按标题手动补录。' : '');
       }
     } catch (e) {
-      area.value = desc;
-      sub.textContent = '⚠ 获取文案失败：' + e.message + ' · 已回退显示标题/简介';
+      area.value = '';
+      sub.textContent = '⚠ 获取文案失败：' + e.message + '。文案为空，请不要直接拿去洗稿。';
     }
   })();
 }
@@ -4904,12 +5404,14 @@ function monAcctOpenVid(el, ev) {
           (r.desc ? ' · 原标题：' + r.desc.slice(0, 30) : '') +
           ' · 共 ' + r.text.length + ' 字（可编辑，改完直接「拿去洗稿」）';
       } else {
-        area.value = desc;
-        sub.textContent = '⚠ ' + (r.error || '获取文案失败') + ' · 已回退显示标题/简介';
+        // 失败不回填标题冒充文案（历史 bug：用户差点把标题拿去洗稿），置空并明确提示
+        area.value = '';
+        sub.textContent = '⚠ ' + (r.error || '获取文案失败') + '。文案为空，请不要直接拿去洗稿；' +
+          (desc && desc !== '（无文字）' ? '视频标题是：「' + desc + '」，可先按标题手动补录。' : '');
       }
     } catch (e) {
-      area.value = desc;
-      sub.textContent = '⚠ 获取文案失败：' + e.message + ' · 已回退显示标题/简介';
+      area.value = '';
+      sub.textContent = '⚠ 获取文案失败：' + e.message + '。文案为空，请不要直接拿去洗稿。';
     }
   })();
 }
@@ -4928,23 +5430,42 @@ function deltaHtml(label, val) {
 /* 自动监控区块：在 monitor 页内渲染「自动轮询控制 + 数据提醒 + 相邻对比报告」，
    账号列表复用对标监控的同一份账号（不再单独维护）。 */
 async function monLoadAutoMonitor() {
-  const box = $('monAutoBox');
+  const box = $('autoMonitorBox');
   if (!box) return;
   box.innerHTML =
-    '<div class="card" style="margin-bottom:14px">' +
-      '<div class="card-title">⚡ 自动监控（持续盯号）</div>' +
-      '<div class="mon-add" style="margin-top:8px">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px">' +
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
         '<button class="btn-primary" id="autoStart" style="background:#0a84ff">▶ 开始自动监控</button>' +
         '<button class="btn-primary" id="autoStop" style="background:#ff3b30;display:none">■ 停止</button>' +
         '<span class="muted" id="autoStatusText" style="font-size:12px;color:var(--c-text-mute);align-self:center">未启动</span>' +
       '</div>' +
-      '<div class="muted" style="font-size:12px;color:var(--c-text-mute);margin-top:8px">基于上方「监控账号」列表，系统每 <b>5 分钟</b> 自动轮询一次所有账号的视频数据，逐视频与上一次对比：🆕 = 新视频，▲红 = 上涨，▼绿 = 下跌。数据异常（暴涨/新视频/涨粉）会实时提醒并在导航显示未读红点。需本机浏览器已登录抖音（自动读取 cookie）。</div>' +
+      '<button class="btn-ghost" id="autoMonitorClose" style="border-color:var(--c-border);font-size:12px;padding:6px 12px">关闭</button>' +
+    '</div>' +
+    '<div class="muted" style="font-size:12px;color:var(--c-text-mute);margin-bottom:14px;padding:10px 12px;background:var(--c-bg-soft);border-radius:8px">' +
+      '基于「监控账号」列表，每 <b>5 分钟</b> 自动轮询一次，逐视频与上一次对比：🆕 新视频，▲红 上涨，▼绿 下跌。数据异常会实时提醒并在导航显示红点。需本机浏览器已登录抖音。' +
     '</div>' +
     '<div id="autoAlertBox"></div>' +
     '<div id="autoReport"></div>';
   $('autoStart').addEventListener('click', autoStart);
   $('autoStop').addEventListener('click', autoStop);
+  $('autoMonitorClose').addEventListener('click', () => { $('autoMonitorMask').style.display = 'none'; });
   await autoLoadStatus();
+  // 同步更新顶部按钮上的迷你状态
+  const mini = $('autoMonitorMini');
+  if (mini) {
+    try {
+      const d = await fetch('/api/monitor/poll/status').then(r => r.json());
+      const s = d.state || {};
+      if (s.running) {
+        const iv = Math.round((s.interval || 300) / 60) || 5;
+        mini.textContent = '每' + iv + '分钟';
+        mini.style.color = '#34c759';
+      } else {
+        mini.textContent = '未启动';
+        mini.style.color = 'var(--c-text-mute)';
+      }
+    } catch (_) {}
+  }
   await autoLoadAlerts();
   await autoLoadReport();
 }
@@ -5257,7 +5778,8 @@ async function loadTTS() {
             '</div>' +
             '<div style="margin-top:8px;display:flex;gap:8px">' +
               '<button class="btn-primary" id="wlCrawlBtn" style="background:#34c759;flex:1;font-weight:600"><span class="btn-ico"><svg><use href="#ic-download"/></svg></span>抓取全部账号</button>' +
-              '<button class="btn-ghost" id="wlDelShortBtn" style="flex:none;color:#ff9500;border-color:#ff9500;font-size:12px" title="删除所有时长不足60秒的视频（下次抓取也不再抓回）">清理短视频</button>' +
+              '<button class="btn-ghost" id="wlReextractBtn" style="flex:1;color:#af52de;border-color:#af52de;font-weight:600" title="批量重新扒所有账号下「段数过少或失败」的视频（适合处理「待补扒」列表）"><span class="btn-ico"><svg><use href="#ic-refresh"/></svg></span>补扒全部</button>' +
+              '<button class="btn-ghost" id="wlDelShortBtn" style="flex:1;color:#ff9500;border-color:#ff9500;font-size:12px" title="删除所有时长不足 60 秒的视频及其文案，且下次抓取不再抓回">清理短视频</button>' +
             '</div>' +
             '<div id="wlStatus" style="margin-top:6px"></div>' +
             '<div id="wlAccountList" style="margin-top:8px"></div>' +
@@ -5326,6 +5848,8 @@ async function loadTTS() {
   // 重开自动恢复上次的提取结果与对话（静默，无记录则不打扰）
   ttsAutoRestore();
   wlLoadAccounts();
+  // 如果启动时已有自动抓取/补扒任务在跑，立即显示进度条
+  wlCheckRunningStatus();
   // 工具抽屉开合
   $('ttsToolsBtn').addEventListener('click', () => ttsOpenTools());
   $('ttsCloseBtn').addEventListener('click', () => ttsCloseTools());
@@ -5451,6 +5975,7 @@ async function loadTTS() {
   $('visitorSaveBtn').addEventListener('click', ttsSaveVisitorProfile);
   $('wlAddBtn').addEventListener('click', wlAddAccount);
   $('wlCrawlBtn').addEventListener('click', wlCrawlAll);
+  $('wlReextractBtn').addEventListener('click', wlReextractAll);
   $('wlDelShortBtn').addEventListener('click', wlDeleteShort);
   $('wlHomeUrl').addEventListener('keydown', e => { if (e.key === 'Enter') wlAddAccount(); });
   $('chatSendBtn').addEventListener('click', ttsSendChatMessage);
@@ -5986,8 +6511,9 @@ async function ttsExtractLink() {
   $('visitorProfileBox').innerHTML = '';
   $('visitorStatus').textContent = '';
   try {
-    const d = await fetch('/api/extract/link', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }) }).then(r => r.json());
+    const d = await extractLinkAsync(url, (msg)=>{
+      if ($('extractStatus')) $('extractStatus').innerHTML = '<span class="muted" style="color:var(--primary)">⏳ ' + esc(msg || '处理中…') + '</span>';
+    });
     // 无字幕兜底：后端提示「没字幕/没文案」时，直接自动转入语音转录
     if (!d.ok) {
       const errMsg = (d.error || '');
@@ -6206,7 +6732,7 @@ async function wlCrawlAll() {
   $('wlStatus').innerHTML = '<span class="muted" style="color:var(--primary)">⏳ 开始抓取…</span>';
   try {
     const d = await fetch('/api/workslib/crawl', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count: 50 }) }).then(r => r.json());
+      body: JSON.stringify({ count: 200 }) }).then(r => r.json());
     if (!d.ok) { $('wlStatus').innerHTML = '<span style="color:#ff3b30">❌ ' + esc(d.error || '启动失败') + '</span>'; btn.disabled = false; return; }
     wlPollStatus();
   } catch (e) {
@@ -6215,19 +6741,43 @@ async function wlCrawlAll() {
   }
 }
 
+async function wlCheckRunningStatus() {
+  try {
+    const d = await fetch('/api/workslib/status').then(r => r.json());
+    if (d.running) {
+      // 自动启动进度条轮询，并禁用对应按钮
+      if (d.task === 'reextract') {
+        $('wlReextractBtn').disabled = true;
+      } else {
+        $('wlCrawlBtn').disabled = true;
+      }
+      wlPollStatus();
+    }
+  } catch (e) {
+    // 静默忽略
+  }
+}
+
 async function wlPollStatus() {
   if (_wlPollTimer) clearInterval(_wlPollTimer);
+  let failCount = 0;   // 连续失败计数：网络闪断一次不判死，连续 5 次才停
   _wlPollTimer = setInterval(async () => {
     try {
       const d = await fetch('/api/workslib/status').then(r => r.json());
+      failCount = 0;
       const p = d.progress || {};
       if (d.running) {
-        // 阶段文案：task=crawl 抓视频列表 / extract 扒文案
+        // 阶段文案：task=crawl 抓视频列表 / extract 扒文案 / reextract 批量补扒
         const task = d.task || '';
-        const stageLabel = task === 'extract' ? '扒文案（字幕/ASR 转录）' : '抓取视频列表';
+        const stageLabel = task === 'extract' ? '扒文案（字幕/ASR 转录）'
+                          : task === 'reextract' ? '批量补扒待提取视频'
+                          : '抓取视频列表';
         const cur = p.current ? esc(p.current) : '';
         const done = p.done || 0, total = p.total || 0;
         const pct = total > 0 ? Math.min(100, Math.round(done / total * 100)) : 0;
+        const accent = task === 'reextract' ? '#af52de'
+                     : task === 'extract' ? '#34c759'
+                     : '#0a84ff';
         $('wlStatus').innerHTML =
           '<div style="border:1px solid var(--c-border);border-radius:8px;padding:10px 12px;background:var(--c-card)">' +
             '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
@@ -6235,27 +6785,39 @@ async function wlPollStatus() {
               '<span class="muted" style="font-size:11px">' + done + ' / ' + total + ' · ' + pct + '%</span>' +
             '</div>' +
             '<div style="height:8px;background:var(--c-bg);border-radius:4px;overflow:hidden">' +
-              '<div style="height:100%;width:' + pct + '%;background:linear-gradient(90deg,#0a84ff,#34c759);border-radius:4px;transition:width .4s ease"></div>' +
+              '<div style="height:100%;width:' + pct + '%;background:' + accent + ';border-radius:4px;transition:width .4s ease"></div>' +
             '</div>' +
             (cur ? '<div class="muted" style="font-size:11px;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + cur + '</div>' : '') +
           '</div>';
       } else {
         clearInterval(_wlPollTimer);
         const res = d.result || {};
-        const errs = (res.errors || []);
-        let msg = '✅ 抓取完成：' + (res.accounts || 0) + ' 个账号，' + (res.videos || 0) + ' 条视频，扒出 ' + (res.extracted || 0) + ' 条对话';
-        if (errs.length) msg += '（' + errs.length + ' 条失败）';
-        $('wlStatus').innerHTML = '<span style="color:#34c759">' + esc(msg) + '</span>';
-        if (errs.length) {
-          $('wlStatus').innerHTML += '<div class="muted" style="font-size:11px;color:#ff9500;margin-top:4px">' + errs.slice(0, 3).map(esc).join('<br>') + '</div>';
+        const isReextract = (d.task === 'reextract');
+        if (isReextract) {
+          const msg = '✅ 补扒完成：' + (res.re_extracted || 0) + ' 条成功，' + (res.failed || 0) + ' 条失败（' + (res.accounts || 0) + ' 个账号）';
+          $('wlStatus').innerHTML = '<span style="color:#34c759">' + esc(msg) + '</span>';
+          $('wlReextractBtn').disabled = false;
+        } else {
+          const errs = (res.errors || []);
+          let msg = '✅ 抓取完成：' + (res.accounts || 0) + ' 个账号，' + (res.videos || 0) + ' 条视频，扒出 ' + (res.extracted || 0) + ' 条对话';
+          if (errs.length) msg += '（' + errs.length + ' 条失败）';
+          $('wlStatus').innerHTML = '<span style="color:#34c759">' + esc(msg) + '</span>';
+          if (errs.length) {
+            $('wlStatus').innerHTML += '<div class="muted" style="font-size:11px;color:#ff9500;margin-top:4px">' + errs.slice(0, 3).map(esc).join('<br>') + '</div>';
+          }
+          $('wlCrawlBtn').disabled = false;
         }
-        $('wlCrawlBtn').disabled = false;
         await wlLoadAccounts();
       }
     } catch (e) {
-      clearInterval(_wlPollTimer);
-      $('wlStatus').innerHTML = '<span style="color:#ff3b30">❌ ' + esc(e.message) + '</span>';
-      $('wlCrawlBtn').disabled = false;
+      // 网络闪断不判死：连续 5 次失败才停轮询（任务可能还在后台跑）
+      failCount++;
+      if (failCount >= 5) {
+        clearInterval(_wlPollTimer);
+        _wlPollTimer = null;
+        $('wlStatus').innerHTML = '<span style="color:#ff3b30">❌ 连接服务失败（连续多次），任务可能仍在后台跑，请刷新页面查看</span>';
+        $('wlCrawlBtn').disabled = false;
+      }
     }
   }, 1500);
 }
@@ -6417,6 +6979,29 @@ async function wlReextractAll(evt, accountId, btn) {
   }
 }
 
+// 批量补扒：重新扒所有账号下「段数过少或失败」的视频（用于界面上的「待补扒」列表）
+async function wlReextractAll() {
+  const ok = await confirmDanger('补扒全部？', '将批量重新扒所有账号下「段数过少或失败」的视频（包括历史仅标题的），耗时可能较长。', '开始补扒');
+  if (!ok) return;
+  const btn = $('wlReextractBtn');
+  btn.disabled = true;
+  $('wlStatus').innerHTML = '<span class="muted" style="color:#af52de">⏳ 正在启动补扒…</span>';
+  try {
+    const d = await fetch('/api/workslib/reextract_all_accounts', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ max_segments: 3, only_errors: false }) }).then(r => r.json());
+    if (d.ok) {
+      wlPollStatus();
+    } else {
+      $('wlStatus').innerHTML = '<span style="color:#ff3b30">❌ ' + esc(d.error || '补扒失败') + '</span>';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    $('wlStatus').innerHTML = '<span style="color:#ff3b30">❌ ' + esc(e.message) + '</span>';
+    btn.disabled = false;
+  }
+}
+
 // 批量删除时长 < 60 秒的短视频（所有账号）
 async function wlDeleteShort() {
   const ok = await confirmDanger('清理短视频？', '将删除所有时长不足 60 秒的视频及其文案，且下次「抓取全部账号」会自动排除它们（不再抓回）。', '清理');
@@ -6479,9 +7064,9 @@ function ttsRenderSegments(segments, extractId) {
       '<div class="tts-seg-bubble">' +
         '<div class="tts-seg-ops">' +
           '<button class="seg-switch" onclick="ttsUpdateSpeaker(' + i + ', \'' + other + '\')" title="改成对方说的">⇄ 改成 ' + otherName + '</button>' +
-          '<button class="seg-switch" onclick="ttsSplitSeg(' + i + ')" title="在光标处把这一句拆成两句">✂️ 拆分</button>' +
-          '<button class="seg-switch" onclick="ttsAddSeg(' + i + ')" title="在这句下面新增一句">＋ 加一句</button>' +
-          '<button class="seg-del" onclick="ttsDelSeg(' + i + ')" title="删除这一句">删除</button>' +
+          '<button class="seg-switch" onclick="ttsSplitSeg(i)" title="在光标处把这一句拆成两句">✂️ 拆分</button>' +
+          '<button class="seg-switch" onclick="ttsAddSeg(i)" title="在这句下面新增一句">＋ 加一句</button>' +
+          '<button class="seg-del" onclick="ttsDelSeg(i)" title="删除这一句">删除</button>' +
         '</div>' +
         '<div contenteditable="true" id="segText' + i + '" data-idx="' + i + '" onblur="ttsEditText(' + i + ', this.textContent)">' + esc(seg.text) + '</div>' +
       '</div>' +
@@ -6517,6 +7102,7 @@ function ttsOpenSpeakerDialog() {
       '<div class="spk-sub">像微信聊天一样：<b style="color:#0a84ff">A·师傅</b>靠右、<b style="color:#0a84ff">B·求测者</b>靠左。鼠标移到一句话上会显示操作：<b>⇄ 改成对方</b>、<b>✂️ 拆分</b>（先把光标点到句子要断开的位置再点）、<b>＋ 加一句</b>、<b>删除</b>。点文字可直接编辑。改完点下方「确定」，会用最新说话人重新梳理求测者经历，并<b>自动创建角色</b>，不用再手动去点。</div>' +
       '<div class="spk-body" id="speakerSegments"></div>' +
       '<div class="spk-ft">' +
+        '<button class="btn-ghost" id="spkSwapBtn" style="flex:1;font-weight:600;white-space:nowrap" title="把 A·师傅 和 B·求测者 的发言全部对换"><span class="btn-ico"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M7 10l-3 3 3 3M5 13h13M17 14l3-3-3-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>⇄ 一键对换 A/B</button>' +
         '<button class="btn-primary" id="spkConfirmBtn" style="background:#34c759;flex:1;font-weight:600">✅ 确定，已区分好发言人</button>' +
       '</div>' +
     '</div>';
@@ -6533,6 +7119,42 @@ function ttsOpenSpeakerDialog() {
   mask.addEventListener('mousedown', e => { if (e.target === mask) mask.remove(); });
   const escHandler = ev => { if (ev.key === 'Escape') { mask.remove(); document.removeEventListener('keydown', escHandler); } };
   document.addEventListener('keydown', escHandler);
+  // 一键对换 A/B 发言人
+  const swapBtn = $('spkSwapBtn');
+  if (swapBtn) swapBtn.addEventListener('click', ttsSwapSpeakers);
+}
+
+// 一键对换：把 A·师傅 与 B·求测者 的发言全部互换，并保存到后端 + 重新渲染。
+async function ttsSwapSpeakers() {
+  if (!_extractData || !_extractData.extract_id) { showToast('请先提取文案'); return; }
+  const segs = (_extractData && _extractData.segments) || [];
+  if (!segs.length) { showToast('还没有对话内容可对换'); return; }
+  // 先在前端立即对换并重绘（即时反馈）
+  segs.forEach(seg => {
+    if (seg.speaker === 'A') seg.speaker = 'B';
+    else if (seg.speaker === 'B') seg.speaker = 'A';
+  });
+  ttsRenderSegments(segs, _extractData.extract_id);
+  showToast('⏳ 正在对换并保存…');
+  try {
+    const d = await fetch('/api/extract/segment/swap', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ extract_id: _extractData.extract_id }) }).then(r => r.json());
+    if (d.ok) {
+      _extractData.segments = d.segments;
+      ttsRenderSegments(d.segments, _extractData.extract_id);
+      showToast('✅ 已把 A·师傅 和 B·求测者 的发言全部对换（' + (d.swapped || 0) + ' 句）');
+    } else {
+      // 后端失败则回滚内存
+      segs.forEach(seg => {
+        if (seg.speaker === 'A') seg.speaker = 'B';
+        else if (seg.speaker === 'B') seg.speaker = 'A';
+      });
+      ttsRenderSegments(segs, _extractData.extract_id);
+      showToast('⚠ ' + (d.error || '对换失败'));
+    }
+  } catch (e) {
+    showToast('⚠ ' + e.message);
+  }
 }
 
 function ttsUpdateSpeakerOptions(segments) {
@@ -6672,7 +7294,7 @@ function ttsTimelineField(experiences) {
       '<div class="vp-tl-dot"></div>' +
       '<div class="vp-tl-body">' +
         '<div contenteditable="true" class="vp-tl-text" onblur="ttsTimelineEdit(' + i + ', this.textContent)">' + esc(rest || (year ? '' : ev)) + '</div>' +
-        '<button class="vp-tl-del" onclick="ttsTimelineDel(' + i + ')" title="删除这一行">✕</button>' +
+        '<button class="vp-tl-del" onclick="ttsTimelineDel(i)" title="删除这一行">✕</button>' +
       '</div>' +
     '</div>';
   });
@@ -6714,7 +7336,7 @@ function ttsRenderTimeline() {
       '<div class="vp-tl-dot"></div>' +
       '<div class="vp-tl-body">' +
         '<div contenteditable="true" class="vp-tl-text" onblur="ttsTimelineEdit(' + i + ', this.textContent)">' + esc(rest || (year ? '' : ev)) + '</div>' +
-        '<button class="vp-tl-del" onclick="ttsTimelineDel(' + i + ')" title="删除这一行">✕</button>' +
+        '<button class="vp-tl-del" onclick="ttsTimelineDel(i)" title="删除这一行">✕</button>' +
       '</div>' +
     '</div>';
   }).join('') || '<div class="empty" style="padding:6px;font-size:12px">还没有经历数据</div>';
@@ -8311,11 +8933,11 @@ try{
   if(VIEWS.includes(hv)) switchView(hv);
 }catch(_){}
 /* ================= 洗稿工坊 ================= */
-let rwSessions = [], rwMeta = null, rwCurrent = null, rwEs = null, rwSid = null, rwBusy = false, rwPrefillOriginal = '', rwPrefillMetrics = null, rwFilter = { q:'', status:'', sort:'new' };
+let rwSessions = [], rwMeta = null, rwCurrent = null, rwEs = null, rwSid = null, rwBusy = false, rwPrefillOriginal = '', rwPrefillMetrics = null, rwPrefillSource = {}, rwFilter = { q:'', status:'', sort:'new' };
 let rwCommentQueue = [];   // 重写进行中时的评论排队（当前句重写完成后自动逐个发送）
 let rwSessionCache = null;   // 当前打开的洗稿 session 缓存（用于 SSE 局部刷新全文流）
 const rwRenderedSeqs = new Set();
-const RW_STATUS = { running:'进行中', review:'待定稿', iterating:'迭代中', done:'已完成' };
+const RW_STATUS = { running:'进行中', review:'待定稿', iterating:'迭代中', done:'已完成', failed:'失败' };
 
 // 单条洗稿记录卡片（列表与筛选共用）
 function rwItemHtml(s){
@@ -8331,9 +8953,15 @@ function rwItemHtml(s){
       '<span>' + esc(s.created_at || '') + '</span>' +
     '</div>' +
     '<div class="rw-ops">' +
-      '<button title="重新洗（保留原稿与数据，换要求重跑）" onclick="event.stopPropagation();rwRedo(\'' + s.id + '\')">🔄 重新洗</button>' +
-      '<button title="导出该篇洗稿成品" onclick="event.stopPropagation();exportRewrite(\'' + s.id + '\')">📥 导出</button>' +
-      '<button class="del" title="删除该洗稿记录" onclick="event.stopPropagation();rwDelete(\'' + s.id + '\')"><span class="ico" style="width:13px;height:13px"><svg><use href="#ic-trash"/></svg></span></button>' +
+      // running/iterating/failed 状态提供「继续」入口：关软件后再开会话能继续；失败也能接着重跑
+      (s.status === 'running' || s.status === 'iterating' || s.status === 'failed'
+        ? '<button title="接着上次继续洗稿（保留同一 rid 的存档）" onclick="event.stopPropagation();rwResume(\'' + s.id + '\')">▶️ 继续</button>'
+        : '') +
+      // 导出仅在成功态出现
+      (s.status === 'done'
+        ? '<button title="导出该篇洗稿成品" onclick="event.stopPropagation();exportRewrite(\'' + s.id + '\')">📥 导出</button>'
+        : '') +
+      '<button class="del-link" title="删除该洗稿记录" onclick="event.stopPropagation();rwDelete(\'' + s.id + '\')">删除</button>' +
     '</div></div>';
 }
 
@@ -8350,26 +8978,45 @@ function toggleRwInsight(){
 }
 
 async function loadRewrite(){
+  // 缓存优先（终极防卡）：如果前端已有数据，立即渲染——绝不因后端忙而把用户挡在门外。
+  // 网络刷新在后台静默做（长超时 60s），成功后原地更新；失败静默（不打扰）。
   const v = $('view-rewrite');
-  v.innerHTML = skelList(2);
-  // 加载超时兜底：5 秒后如果还没渲染出来，显示「仍在加载…」提示
-  const timeoutId = setTimeout(() => {
-    if (v.querySelector('.skeleton')) {
-      v.innerHTML = '<div class="empty">⏳ 仍在加载中…如果超过 10 秒请检查服务是否启动，或<button class="btn-ghost" onclick="loadRewrite()">重试</button></div>';
-    }
-  }, 5000);
+  const hasCache = (typeof rwSessions !== 'undefined' && rwSessions && rwSessions.length) &&
+                   (typeof rwMeta !== 'undefined' && rwMeta && rwMeta.ok);
+  if (hasCache) {
+    try { renderRewrite(v); } catch(_) {}
+  } else {
+    v.innerHTML = '<div class="empty" id="_rwBusy">' +
+      '<div style="font-size:28px;margin-bottom:8px">⏳</div>' +
+      '<div style="font-weight:600">加载洗稿列表……</div>' +
+      '<div style="font-size:12.5px;color:var(--c-text-mute);margin-top:8px;line-height:1.7">如果横幅显示「后端正忙」·「运行中任务 N」> 0，<br>等长任务完成会自动进入（最多 60 秒）</div>' +
+      '<button class="btn-ghost" style="margin-top:14px" onclick="loadRewrite()">手动刷新</button>' +
+      '</div>';
+  }
   try {
     const [l, m] = await Promise.all([
-      fetch('/api/rewrite/list').then(r=>r.json()),
-      fetch('/api/rewrite/meta').then(r=>r.json())
+      get('/api/rewrite/list'),
+      get('/api/rewrite/meta')
     ]);
-    clearTimeout(timeoutId);
-    rwSessions = (l.ok ? l.sessions : []) || [];
-    rwMeta = m.ok ? m : null;
-    renderRewrite(v);
-  } catch(e){
-    clearTimeout(timeoutId);
-    v.innerHTML = '<div class="empty">⚠ 加载失败: ' + esc(e.message) + '<br><br><button class="btn-ghost" onclick="loadRewrite()">重试</button></div>';
+    if (l.ok && m.ok) {
+      rwSessions = l.sessions || [];
+      rwMeta = m.ok ? m : null;
+      try { renderRewrite(v); } catch(_) {}
+      return;
+    }
+    // 网络失败：有缓存则静默（页面已经显示旧数据），无缓存才显示错误
+    if (!hasCache) {
+      v.innerHTML = '<div class="empty">' +
+        '<div style="font-size:28px;margin-bottom:8px">⚠</div>' +
+        '<div style="font-weight:600;margin-bottom:8px">' + esc((l && l.error) || (m && m.error) || '加载失败') + '</div>' +
+        '<div style="font-size:12.5px;color:var(--c-text-mute);margin-bottom:14px">后端可能正忙或网络异常</div>' +
+        '<button class="btn-ghost" onclick="loadRewrite()">手动重试</button>' +
+        '</div>';
+    }
+  } catch(e) {
+    if (!hasCache) {
+      v.innerHTML = '<div class="empty">⚠ 加载失败: ' + esc(e.message) + '<br><br><button class="btn-ghost" onclick="loadRewrite()">手动重试</button></div>';
+    }
   }
 }
 
@@ -8420,9 +9067,9 @@ function renderRewrite(v){
     '</div>' +
     '<div class="rw-filter">' +
       '<input id="rwSearch" placeholder="🔍 搜索标题…" value="' + esc(rwFilter.q || '') + '" />' +
-      '<select id="rwStatus">' + ['', 'running', 'review', 'done'].map(s =>
+      '<select id="rwStatus">' + ['', 'running', 'review', 'failed', 'done'].map(s =>
         '<option value="' + s + '"' + (rwFilter.status === s ? ' selected' : '') + '>' +
-        (({running:'进行中', review:'待定稿', done:'已完成'})[s] || '全部状态') + '</option>').join('') + '</select>' +
+        (({running:'进行中', review:'待定稿', failed:'失败', done:'已完成'})[s] || '全部状态') + '</option>').join('') + '</select>' +
       '<select id="rwSort">' + [['new','最新优先'],['old','最早优先']].map(p =>
         '<option value="' + p[0] + '"' + (rwFilter.sort === p[0] ? ' selected' : '') + '>' + p[1] + '</option>').join('') + '</select>' +
     '</div>' +
@@ -8487,7 +9134,7 @@ async function rwLoadMaterials(forceOpen){
       return '<div class="rw-mat-item">' +
         '<div class="desc">' + esc(desc.slice(0, 120)) + '</div>' +
         '<div class="metrics">' + metrics + '</div>' +
-        '<button class="go" onclick="rwFromMaterial(this)" data-desc="' + esc(desc) + '" data-digg="' + (v.digg_count || 0) + '" data-comment="' + (v.comment_count || 0) + '" data-share="' + (v.share_count || 0) + '">✂️ 去洗稿</button>' +
+        '<button class="go" onclick="rwFromMaterial(this)" data-desc="' + esc(desc) + '" data-digg="' + (v.digg_count || 0) + '" data-comment="' + (v.comment_count || 0) + '" data-share="' + (v.share_count || 0) + '" data-collect="' + (v.collect_count || 0) + '">✂️ 去洗稿</button>' +
       '</div>';
     }).join('') + '</div>';
     if (forceOpen) { const ch = $('rwMatChev'); if (ch) ch.classList.add('open'); }
@@ -8505,7 +9152,7 @@ function rwFromMaterial(btn){
     likes: btn.getAttribute('data-digg') || '',
     comments: btn.getAttribute('data-comment') || '',
     forwards: btn.getAttribute('data-share') || '',
-    saves: ''
+    saves: btn.getAttribute('data-collect') || ''
   };
   newRewrite();
 }
@@ -8528,7 +9175,17 @@ async function rwRedo(rid){
   if (!d.ok){ showToast('⚠ ' + (d.error || '重新洗失败')); return; }
   showToast('🔄 已重新洗稿，正在生成中…');
   loadRewrite();
-  setTimeout(()=>{ if (d.sid) openRwStream(d.sid); }, 600);
+  setTimeout(()=>{ if (d.sid) connectRwStream(d.sid); }, 600);
+}
+// 「继续上次洗稿」：保留同一 rid 接着跑（不浪费之前的存档）
+async function rwResume(rid){
+  const ok = await confirmDanger('继续上次洗稿', '将基于该洗稿的原稿/数据/要求接着跑剩余阶段（旧存档保留作为参考）。是否继续？', '继续');
+  if (!ok) return;
+  const d = await post('/api/rewrite/' + rid + '/resume', {});
+  if (!d.ok){ showToast('⚠ ' + (d.error || '继续失败')); return; }
+  showToast('▶️ 已接着上次继续洗稿');
+  loadRewrite();
+  setTimeout(()=>{ if (d.sid) connectRwStream(d.sid); }, 600);
 }
 async function rwDelete(rid){
   const ok = await confirmDanger('删除洗稿', '将永久删除该洗稿记录（含成品与数据），确定吗？', '删除');
@@ -8544,17 +9201,22 @@ async function exportRewrite(rid){
 }
 
 async function rwShowDiff(rid){
-  // 原稿 vs 洗稿成品逐段对照（拼装 8 分区）
+  // 原稿 vs 洗稿成品逐段对照（优先 final 拼装成品，兜底按分区拼接）
   let s = null;
   try{ const d = await fetch('/api/rewrite/' + rid).then(r=>r.json()); if (d.ok) s = d.session; }catch(_){}
   if (!s){ showToast('⚠ 加载失败'); return; }
-  const regions = (rwMeta && rwMeta.regions) || [];
-  const lines = [];
-  for (const r of regions){
-    const p = (s.parts || {})[r.id];
-    if (p && p.text) lines.push(p.text);
+  const parts = s.parts || {};
+  const finFinal = parts.final && parts.final.text;
+  let fin = finFinal || '';
+  if (!fin) {
+    const regions = (rwMeta && rwMeta.regions) || [];
+    const lines = [];
+    for (const r of regions){
+      const p = parts[r.id];
+      if (p && p.text) lines.push(p.text);
+    }
+    fin = lines.join('\n\n').trim();
   }
-  const fin = lines.join('\n\n').trim();
   if (!fin){ showToast('⚠ 该洗稿还没有成品内容'); return; }
   showDiffViewer(s.original || '', fin, '原稿 vs 洗稿成品');
 }
@@ -8611,8 +9273,9 @@ async function rwWinrate(){
 async function newRewrite(){
   const pre = rwPrefillOriginal; rwPrefillOriginal = '';
   const pm = rwPrefillMetrics; rwPrefillMetrics = null;
+  const ps = rwPrefillSource; rwPrefillSource = {};
   if (!pre) { await newRewriteFromLink(); return; }
-  await newRewriteManual(pre, pm);
+  await newRewriteManual(pre, pm, '', ps);
 }
 
 async function newRewriteFromLink(){
@@ -8632,18 +9295,37 @@ async function newRewriteFromLink(){
   loading.innerHTML = '<div class="modal-box" style="max-width:420px">' +
     '<div class="modal-title">正在识别原稿文案</div>' +
     '<div class="modal-sub">正在识别抖音文案和互动数据，请稍等，不用重复点「新建洗稿」。</div>' +
-    '<div style="padding:16px 0 6px 0;color:var(--primary);font-size:14px">⏳ 识别中…</div>' +
+    '<div style="padding:16px 0 6px 0;color:var(--primary);font-size:14px" id="extractTaskProgress">⏳ 提交中…</div>' +
+    '<div class="modal-btns" style="margin-top:10px"><button class="cancel" id="extractCancel">取消（本次识别结果将不会保存）</button></div>' +
   '</div>';
   $('modalRoot').appendChild(loading);
+  // 取消入口：遮罩不能锁死用户（历史 bug：无取消按钮，只能杀进程）
+  let extractCancelled = false;
+  loading.querySelector('#extractCancel').addEventListener('click', ()=>{
+    extractCancelled = true;
+    loading.remove();
+    showToast('已取消等待，识别任务在后台继续');
+  });
+  loading.addEventListener('click', e=>{ if (e.target === loading){ extractCancelled = true; loading.remove(); } });
+  const _escClose = e=>{ if (e.key === 'Escape'){ extractCancelled = true; loading.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
 
   let extracted;
+  const progressEl = $('extractTaskProgress');
   try {
-    extracted = await post('/api/extract/link', { url: f.share_url.trim() });
+    extracted = await extractLinkAsync(f.share_url.trim(), (msg)=>{
+      if (extractCancelled) return;
+      if (progressEl) progressEl.innerHTML = '⏳ ' + esc(msg || '处理中…');
+      const sub = loading.querySelector('.modal-sub');
+      if (sub) sub.textContent = '长视频可能需一两分钟，正在自动提取，请耐心等待…';
+    });
   } catch (e) {
     extracted = { ok:false, error:e.message };
   } finally {
+    document.removeEventListener('keydown', _escClose);
     loading.remove();
   }
+  if (extractCancelled) { showToast('已取消，本次识别结果不会保存'); return; }
   const extractedText = (extracted && (extracted.text || extracted.raw_text) || '').trim();
   if (!extracted || !extracted.ok || !extractedText) {
     const err = ((extracted && extracted.error) || '未提取到文案');
@@ -8676,7 +9358,12 @@ async function newRewriteFromLink(){
     requirements: f.requirements || ''
   });
   if (!checked) { showToast('已取消，尚未开始洗稿'); return; }
-  await startRewrite(checked);
+  // 素材来源：链接提取带 aweme_id 时，保存为作品后可一键打开原视频
+  const src = (vi.aweme_id || vi.video_id)
+    ? { source_url: vi.share_url || ('https://www.douyin.com/video/' + (vi.aweme_id || vi.video_id)),
+        source_platform: (vi.platform || 'douyin'), source_video_id: String(vi.aweme_id || vi.video_id) }
+    : {};
+  await startRewrite(checked, src);
 }
 
 // 把「默认字数 550-600 字」勾选项 + 用户自填的 requirements 合并
@@ -8805,12 +9492,13 @@ async function wizardRewrite(init){
   return new Promise(resolve => { resolveFn = resolve; });
 }
 
-async function newRewriteManual(pre, pm, requirementPrefill){
+async function newRewriteManual(pre, pm, requirementPrefill, ps){
   // 已有预填原稿（如从爆款素材一键带入）时，直接进入三步向导；
   // 否则先让用户补录原稿和互动数据。
   let original = pre || '';
   let likes = pm ? pm.likes : '', comments = pm ? pm.comments : '';
   let forwards = pm ? pm.forwards : '', saves = pm ? pm.saves : '';
+  const src = ps || {};   // 素材来源（监控选材带入）
   if (!original) {
     const f = await openModal({
       title: '✂️ 手动补录洗稿素材',
@@ -8834,15 +9522,18 @@ async function newRewriteManual(pre, pm, requirementPrefill){
     requirements: requirementPrefill || ''
   });
   if (!checked) { showToast('已取消，尚未开始洗稿'); return; }
-  await startRewrite(checked);
+  await startRewrite(checked, src);
 }
 
-async function startRewrite(f){
+async function startRewrite(f, src){
   const d = await post('/api/rewrite/start', {
     original: f.original,
     likes: f.likes || '', comments: f.comments || '',
     forwards: f.forwards || '', saves: f.saves || '',
-    requirements: f.requirements || ''
+    requirements: f.requirements || '',
+    source_url: (src && src.source_url) || '',
+    source_platform: (src && src.source_platform) || '',
+    source_video_id: (src && src.source_video_id) || ''
   });
   if (!d.ok) { showToast('⚠ ' + (d.error || '启动失败')); return; }
   rwSid = d.sid;
@@ -8871,17 +9562,37 @@ async function openRewrite(rid, quiet){
   rwCurrent = rid;
   rwRenderedSeqs.clear();
   if (rwEs) { try { rwEs.close(); } catch(_){} rwEs = null; }
-  // 保障 rwMeta 已加载：从通知/记录直接跳进来时可能还没加载过 meta（regions 依赖它）。
-  // 若缺失则先拉取，避免详情页 regions 为空导致渲染不全/空白。
+  // 保障 rwMeta 已加载
   if (!rwMeta) {
     try { rwMeta = await fetch('/api/rewrite/meta').then(r => r.json()).catch(() => null); } catch(_) { rwMeta = null; }
   }
-  const d = await fetch('/api/rewrite/' + rid).then(r=>r.json());
-  if (!d.ok) { showToast('⚠ ' + (d.error || '加载失败')); return; }
+  const detail = $('rwDetail');
+  if (detail) detail.innerHTML = '<div class="rw-empty" style="padding:60px 20px;text-align:center">' +
+    '<div style="font-size:34px;margin-bottom:10px">⏳</div>' +
+    '<div style="font-weight:600;font-size:15px">加载洗稿详情……</div>' +
+    '<div style="font-size:12.5px;color:var(--c-text-mute);margin-top:8px">（如果横幅显示「运行中任务 > 0」，等长任务完成即可）</div>' +
+    '</div>';
+  // 长超时（30s）：后端在跑长任务时 GET 会排队等
+  let d = null;
+  try {
+    const r = await fetch('/api/rewrite/' + rid, { signal: AbortSignal.timeout(30000) });
+    d = await r.json();
+  } catch(_) {
+    d = null;
+  }
+  if (!d || !d.ok) {
+    if (detail) detail.innerHTML = '<div class="rw-empty" style="padding:60px 20px;text-align:center">' +
+      '<div style="font-size:34px;margin-bottom:10px">⚠</div>' +
+      '<div style="font-weight:600">加载详情超时</div>' +
+      '<div style="font-size:12.5px;color:var(--c-text-mute);margin:10px 0 18px">后端可能正在跑长任务（最终审查/句级重写），<br>等任务完成会自动刷新</div>' +
+      '<button class="btn-ghost" onclick="openRewrite(\'' + rid + '\', true)">手动刷新</button>' +
+      '</div>';
+    if (!quiet) showToast('⚠ 加载超时，请稍后重试');
+    return;
+  }
   const s = d.session;
   if (d.sid) rwSid = d.sid;
   rwSessionCache = s;   // 缓存，供 SSE 事件局部刷新全文流使用
-  const detail = $('rwDetail');
   if (!detail) return;
   // 渲染详情；任何 JS 异常都捕获并显示可见错误，绝不让整页空白
   let html;
@@ -8893,7 +9604,9 @@ async function openRewrite(rid, quiet){
     return;
   }
   detail.innerHTML = html;
-  // 自动滚动到成品全文区域（确保老板一眼看到全文，而不是停在顶部按钮/进度）
+  // 流水线卡片：插在详情顶部（吸顶），从 archive 状态重建
+  rebuildPipelineFromSession(s);
+  // 自动滚动到成品全文区域
   const ft = $('rwFullText');
   if (ft) {
     requestAnimationFrame(() => {
@@ -8917,11 +9630,8 @@ function rwDetailHtml(s){
   const regions = (rwMeta && rwMeta.regions) || [];
   const untouchable = s.untouchable || [];
   const parts = s.parts || {};
-  // 兼容旧流程：无 final 或 final 是后端兜底生成的 → 顶部给「重新洗稿」引导
-  const backfilled = !!(parts['final'] && parts['final'].backfilled);
-  const isLegacy = !parts['final'] || backfilled;
   // 全文流：按 regions 顺序把所有句子拼成一篇连续文章
-  const fullTextHtml = rwFullTextHtml(s.id, regions, parts, untouchable);
+  const fullTextHtml = rwFullTextHtml(s.id, regions, parts, untouchable, s.status, s.last_error || '');
 
   const { sentCount, charCount } = (() => {
     let n = 0, c = 0, allText = '';
@@ -8954,13 +9664,21 @@ function rwDetailHtml(s){
 
   // 行动作按钮（保留最核心的 4 个）
   const actions = '<div class="rw-actions" style="margin-top:14px">' +
-    (s.status !== 'done'
+    (s.status === 'failed'
+      ? '<div class="rw-legacy-note" style="border-color:#fecaca;background:#fef2f2;color:#b91c1c;padding:10px 12px;border-radius:8px;font-size:12px;margin-bottom:8px">❌ 洗稿失败：' + esc(s.last_error || '模型服务异常') + '<button class="btn-primary" style="margin-left:8px;padding:4px 12px" onclick="rwResume(\'' + s.id + '\')">▶️ 继续洗</button></div>'
+      : '') +
+    (s.status !== 'done' && s.status !== 'failed'
       ? '<button class="btn-primary" onclick="rwFinalize(\'' + s.id + '\')">⚖️ 最终审查 + 记录分工</button>'
       : '') +
     '<button class="btn-ghost" onclick="rwToWork(\'' + s.id + '\')">💾 保存为作品</button>' +
     '<button class="btn-ghost" onclick="rwFillResult(\'' + s.id + '\')">📊 回填成品数据</button>' +
     '<button class="btn-ghost" onclick="copyFullText(\'' + s.id + '\')">📋 复制全文</button>' +
     '<button class="btn-ghost" onclick="rwShowDiff(\'' + s.id + '\')">🔍 原稿vs成品</button>' +
+    // 导出仅在非失败态显示；删除弱化为次要链接样式
+    (s.status !== 'failed'
+      ? '<button class="btn-ghost" onclick="exportRewrite(\'' + s.id + '\')">📥 导出</button>'
+      : '') +
+    '<button class="btn-ghost rw-del-link" onclick="rwDelete(\'' + s.id + '\')">删除</button>' +
     '</div>';
 
   // 成稿后下一步引导（明确告诉老板下一步该点什么；放在文章末尾）
@@ -8991,9 +9709,6 @@ function rwDetailHtml(s){
     '</div>' +
     // 主区域：成品全文铺满整页
     '<div class="rw-doc-wrap">' +
-      (isLegacy
-        ? '<div class="rw-legacy-note">⚠ 这篇是<b>旧版流程</b>产生的草稿，内容为分区草稿的拼接（可能带专家过程说明、偏长）。建议用新版完整流程<b>重新洗稿</b>得到干净的连续成品：<button class="btn-primary" style="margin-left:8px;padding:4px 12px" onclick="rwRedo(\'' + s.id + '\')">🔄 重新洗稿</button></div>'
-        : '') +
       (sentCount > 0
         ? '<div class="rw-doc-bar"><span class="rw-doc-title">📝 洗稿成品</span><span class="rw-doc-count" style="' + charColor + '">共 ' + sentCount + ' 句' + charTip + ' · 整篇连续文章，hover 句子可评论让该专家重写</span></div>'
         : '') +
@@ -9012,6 +9727,106 @@ function toggleRwHd(btn){
   btn.textContent = open ? '▾ 详情' : '▴ 收起';
 }
 
+/* ================= 流水线卡片（8 专家头像横条） ================= */
+// 流水线成员顺序：按流程（骨架→分析→写稿→审查）
+const PIPELINE_ROLES = [
+  { name:'阿骨', role:'骨架师' },
+  { name:'阿沁', role:'文案' },
+  { name:'老周', role:'文案' },
+  { name:'阿爆', role:'文案' },
+  { name:'小黄', role:'文案' },
+  { name:'爆哥', role:'文案' },
+  { name:'阿证', role:'文案' },
+  { name:'阿导', role:'文案' },
+  { name:'阿数', role:'数据' },
+  { name:'阿审', role:'审查' },
+];
+let _plStates = {};      // name -> 'idle'|'thinking'|'working'|'done'|'error'
+let _plLastUpdate = 0;   // 节流时间戳
+
+function plColor(name){ return (AVATAR_COLORS && AVATAR_COLORS[name]) || DEFAULT_COLOR || '#94A3B8'; }
+
+function renderPipeline(s){
+  // 从 archive 数据推断初始状态（用户关软件重开也能看到接近真实的进度）
+  _plStates = {};
+  const parts = (s && s.parts) || {};
+  const analysis = (s && s.analysis) || {};
+  if (s && s.skeleton) _plStates['阿骨'] = 'done';
+  if (s && Object.keys(analysis).length) {
+    PIPELINE_ROLES.forEach(r => { if (r.name !== '阿审') _plStates[r.name] = 'done'; });
+  }
+  if (s && Object.keys(parts).length) {
+    for (const r of PIPELINE_ROLES) {
+      // 分区负责人 / 节奏把控人 —— 无法从 parts 精确反推每个专家，只标记已写出的
+      if (!_plStates[r.name]) _plStates[r.name] = 'done';
+    }
+  }
+  if (s && s.principle_review) _plStates['阿审'] = 'done';
+  const hint = !s ? '等待开始洗稿' : (s.status === 'running' ? '洗稿进行中' : s.status === 'review' || s.status === 'iterating' ? '初稿完成，等你点评' : '');
+  const cards = PIPELINE_ROLES.map(r => {
+    const st = _plStates[r.name] || 'idle';
+    return '<div class="pl-card pl-' + st + '" data-pl-name="' + esc(r.name) + '">' +
+      '<span class="pl-state"></span>' +
+      '<div class="pl-ava" style="background:' + plColor(r.name) + '">' + esc(r.name.slice(0,1)) + '</div>' +
+      '<div class="pl-name">' + esc(r.name) + '</div>' +
+      '<div class="pl-role">' + esc(r.role) + '</div>' +
+    '</div>';
+  }).join('');
+  return '<div class="rw-pipeline" id="rwPipeline">' +
+    (hint ? '<div class="pl-hint">' + esc(hint) + '</div>' : '') + cards +
+    '</div>';
+}
+
+function plSetState(name, state){
+  if (!name) return;
+  if (state === 'done' && _plStates[name] === 'done') return;  // 已完成不降级为 thinking/working 以外的
+  _plStates[name] = state;
+  const bar = $('rwPipeline');
+  if (!bar) return;
+  // CSS.escape 兼容（老 WebView2 可能没有）
+  const sel = (window.CSS && CSS.escape) ? CSS.escape(name) : name.replace(/["\\]/g, '\\$&');
+  const card = bar.querySelector('.pl-card[data-pl-name="' + sel + '"]');
+  if (!card) return;
+  card.className = 'pl-card pl-' + state;
+}
+
+function updatePipeline(ev){
+  if (!ev) return;
+  // 节流：typing 高频事件 500ms 内只处理一次（防止 1.5h 高频刷新卡 UI）
+  const now = Date.now();
+  if (ev.type === 'typing' && now - _plLastUpdate < 500) return;
+  _plLastUpdate = now;
+  if (ev.type === 'system' && ev.kind === 'phase' && ev.expert) {
+    plSetState(ev.expert, 'thinking');
+    return;
+  }
+  if (ev.type === 'typing' && ev.name) {
+    plSetState(ev.name, 'working');
+    return;
+  }
+  if (ev.type === 'message' && ev.name) {
+    plSetState(ev.name, 'done');
+    return;
+  }
+  if (ev.type === 'error') {
+    // 出错：把当前正在干的专家标红
+    for (const r of PIPELINE_ROLES) {
+      if (_plStates[r.name] === 'working' || _plStates[r.name] === 'thinking') plSetState(r.name, 'error');
+    }
+  }
+}
+
+function rebuildPipelineFromSession(s){
+  // openRewrite 时重建流水线（从 archive 状态）
+  const detail = $('rwDetail');
+  if (!detail) return;
+  let bar = $('rwPipeline');
+  if (bar) bar.remove();
+  const html = renderPipeline(s);
+  if (!detail.firstElementChild) { detail.innerHTML = html; return; }
+  detail.insertAdjacentHTML('afterbegin', html);
+}
+
 // 剥掉旧数据里专家自带的作者前缀（「XX：」「【整体节奏】」等），返回干净句子。
 // 整句是专家的过程性/指令性话语时返回空串丢弃。
 function rwStripPrefix(s){
@@ -9020,13 +9835,24 @@ function rwStripPrefix(s){
   if (/^[—\-*＿=~·\.\s]+$/.test(t)) return '';   // 纯分隔符丢弃
   // 剥掉整段开头的「【某某】」独占行前缀
   t = t.replace(/^【[^】]+】\s*/, '').trim();
-  // 剥掉句首「作者名：」前缀
+  // 已知专家名前缀（带/不带冒号 + 空格/破折号分隔），老板说"小黄/老周/阿骨这些不要"
+  const NAMES = ['阿骨','小黄','阿蓝','阿紫','阿白','阿红','阿黑','阿粉','整体节奏','老周','数据专员','阿数','阿审','阿记','小蓝','小白','小红','小黑'];
+  for (const n of NAMES) {
+    const re = new RegExp('^' + n + '\\s*[：:\\-—、，,\\s]*');
+    if (re.test(t)) { t = t.replace(re, '').trim(); break; }
+  }
+  // 兼容旧数据的"作者名："前缀（含中文/英文标点）
   t = t.replace(/^[^\s，。！？！；]{1,6}[:：]\s*/, '').trim();
   if (!t) return '';
-  // 过滤明显的过程性/指令性句子
-  const head = t.slice(0, 6);
-  const PROC = ['收到','我来','我负责','我这边','已收到','好的','好嘞','明白','按骨架','按第','这一part','这一部分','这部分','交给评论区','我只负责','先给你','我来写','我先把','我的思路','这里我','这part'];
-  for (const k of PROC) if (head.indexOf(k) >= 0) return '';
+  // 过滤过程性/分析性/字数说明类句子（老板反复说"这些不用给我"）
+  const PROC_HEAD = ['收到','我来','我负责','我这边','已收到','好的','好嘞','明白','按骨架','按第','这一part','这一部分','这部分','交给评论区','我只负责','先给你','我来写','我先把','我的思路','这里我','这part','对仗金句','金句收束','对仗收束','字数收束','字数控制','对齐金句','数字金句','数字收束','锚点','身份认同','情绪锚点','内容锚点','叙事钩子','爆点设计','记忆锚点','价值锚点','引导钩子','开场钩子','结尾钩子','一句话钩子','信息钩子','全文共鸣','共鸣核心','共情点','价值感','代入感','身份感','记忆点','信任感','真实感','温暖','治愈','共鸣底层','共情','叙事节奏','节奏感','完整度','信息密度','利益点','引发共鸣','情绪价值','情感价值','全文钩子','叙事张力','节奏铺垫','节奏收紧','情绪势能','情绪浓度','情绪层次','感染力','说服力','爽点','虐点','雷点','戳中','击中','带入','共情锚点','情绪锚','代入锚','反差点','对比点','话术结构','话术点','金句结构','金句感','对仗感','结构化表达','口诀收尾','口诀','身份+反差钩子','身份反差钩子','反差钩子','身份钩子','收尾','设计思路'];
+  for (const k of PROC_HEAD) if (t.indexOf(k) >= 0) return '';
+  // 过滤以"【结尾段文案】""【开头段文案】""【稿件】""【分镜】"等模板标记开头
+  if (/^【[^】]+】/.test(t)) return '';
+  // 过滤"【结尾段落】""【开头段落】""【结尾】""【开头】""【正文】""【全文】"等模板标记（中段/尾部出现也过滤掉）
+  if (/【结尾段[^】]*】|【开头段[^】]*】|【结尾】|【开头】|【正文】|【全文】|【核心段】|【收尾】|【开头段文案】|【结尾段文案】/.test(t)) return '';
+  // 过滤以"X字"开头/含"X字结尾"等字数说明
+  if (/^\d+\s*字/.test(t) || /\d+\s*字\s*结尾/.test(t)) return '';
   return t;
 }
 
@@ -9052,21 +9878,68 @@ function rwIsUntouchable(sentence, untouchable){
 }
 
 // 全文流：优先渲染 final（连续文章，每句按作者颜色），无 final 时回退把各分区剥前缀后拼成连续段落
-function rwFullTextHtml(rid, regions, parts, untouchable){
+function rwFullTextHtml(rid, regions, parts, untouchable, status, last_error){
   let html = '';
   const unt = untouchable || [];
   const lines = [];
-  // 优先使用整体节奏负责人拼装后的最终成品（final 分区）
   const final = (parts && parts['final']);
+  // 检测任何可见内容（final.sentences / final.text / 任一 region 有 text 或 sentences）
+  let hasAny = false;
+  if (final) {
+    if (final.sentences && final.sentences.length) hasAny = true;
+    else if (final.text) hasAny = true;
+  }
+  if (!hasAny && parts) {
+    for (const r of regions || []) {
+      if (!r) continue;
+      const p = parts[r.id] || {};
+      if (p.text) { hasAny = true; break; }
+      if (p.sentences && p.sentences.length) { hasAny = true; break; }
+    }
+  }
+  if (!hasAny) {
+    // status=done/review 但没成品（极少见：流程跑完但 parts 没写入；通常是 LLM 异常/老 entry）→ 让老板重新洗稿
+    if (status === 'done' || status === 'review') {
+      return '<div class="rw-empty" style="padding:40px 20px">' +
+        '<div style="font-size:32px;margin-bottom:10px">⚠️</div>' +
+        '<div style="font-weight:600;margin-bottom:6px">该洗稿尚未生成成品正文</div>' +
+        '<div style="font-size:12.5px;color:var(--c-text-mute,#999);line-height:1.7;margin-bottom:14px">流程未正常跑完或正文未被保存（常见于 redo 后未重新洗稿的 entry）。<br>点下面的按钮从这篇原稿重新洗一遍。</div>' +
+        `<button class="btn-primary" onclick="rwRedo('${rid}')">🔄 重新洗稿</button>` +
+        '</div>';
+    }
+    // status=failed → 明确失败原因 + 继续洗入口
+    if (status === 'failed') {
+      return '<div class="rw-empty" style="padding:40px 20px">' +
+        '<div style="font-size:32px;margin-bottom:10px">❌</div>' +
+        '<div style="font-weight:600;margin-bottom:6px">这次洗稿失败了</div>' +
+        '<div style="font-size:12.5px;color:var(--c-text-mute,#999);line-height:1.7;margin-bottom:14px">' + esc(last_error || '原因不明') + '</div>' +
+        `<button class="btn-primary" onclick="rwResume('${rid}')">▶️ 继续洗</button>` +
+        '</div>';
+    }
+    // status=running / iterating（流程进行中、还没出 final）→ 明确告诉用户 AI 还在跑，并给"刷新/重洗"两个出口
+    return '<div class="rw-empty" style="padding:40px 20px">' +
+      '<div style="font-size:32px;margin-bottom:10px">⏳</div>' +
+      '<div style="font-weight:600;margin-bottom:6px">洗稿还在跑</div>' +
+      '<div style="font-size:12.5px;color:var(--c-text-mute,#999);line-height:1.7;margin-bottom:10px">专家还在生成内容<br>第一句出现后这里会变绿并实时更新<br>通常 1-3 分钟出第一句，全篇 5-10 分钟</div>' +
+      '<div style="display:flex;gap:8px;justify-content:center">' +
+        `<button class="btn-ghost" onclick="openRewrite('${rid}', true)">↻ 刷新</button>` +
+        `<button class="btn-ghost" onclick="rwRedo('${rid}')">🔄 重新洗稿</button>` +
+      '</div>' +
+      '</div>';
+  }
   if (final && final.sentences && final.sentences.length) {
     const agents = final.agents || [];
+    const seenSent = new Set();   // 复读机去重：相同正文只保留首次
     for (let i = 0; i < final.sentences.length; i++) {
       const s = final.sentences[i];
       if (s === null || s === undefined || (typeof s !== 'string' && typeof s !== 'number')) continue;
-      const str = String(s).trim();
-      if (!str) continue;
-      const isUnt = rwIsUntouchable(str, unt);
-      const safe = esc(str);
+      const clean = rwStripPrefix(String(s));
+      if (!clean) continue;
+      const key = clean.replace(/\s+/g,'').slice(0, 30);
+      if (seenSent.has(key)) continue;
+      seenSent.add(key);
+      const isUnt = rwIsUntouchable(clean, unt);
+      const safe = esc(clean);
       const inner = isUnt ? ('<strong>' + safe + '</strong><span class="rw-unt-tag" title="不可动句，各分区必须保留">🔒</span>') : safe;
       const agent = agents[i] || final.agent || '';
       const color = agent ? colorOf(agent) : '#94A3B8';
@@ -9124,17 +9997,27 @@ function scrollBottomRw(){
 
 function connectRwStream(sid){
   if (rwEs) { try { rwEs.close(); } catch(_){} }
+  window._rwSeenDone = false;   // 重连后从历史 replay 阶段开始，不显示 typing
   rwEs = new EventSource('/api/stream/' + sid);
   rwEs.onmessage = e => {
     let ev; try { ev = JSON.parse(e.data); } catch(_) { return; }
     rwHandle(ev);
   };
-  rwEs.onerror = () => {};
+  // 断线不静默：后端崩/断网时提示，并关闭连接避免无限重连空转
+  rwEs.onerror = () => {
+    if (rwEs && rwEs.readyState === EventSource.CLOSED) {
+      try { rwEs.close(); } catch(_){}
+      rwEs = null;
+      rwBusy = false;   // 连接断开时强制解锁，防止后端崩溃后按钮永远卡住
+      showToast('⚠ 洗稿进度连接已断开（服务可能已重启），请刷新页面');
+    }
+  };
 }
 
 function rwHandle(ev){
   if (ev.seq && rwRenderedSeqs.has(ev.seq)) return;
   if (ev.seq) rwRenderedSeqs.add(ev.seq);
+  updatePipeline(ev);   // 流水线卡片状态机（先更新，不受下方 return 影响）
   if (ev.type === 'system' || ev.kind === 'phase') {
     // 阶段进度 → 可见的进度条区（不折叠）
     const prog = $('rwProgress');
@@ -9149,6 +10032,11 @@ function rwHandle(ev){
   }
   if (ev.type === 'error') { showToast('⚠ ' + (ev.text || '出错')); return; }
   if (ev.type === 'typing') {
+    // 历史 replay 期间不显示 typing（避免用户打开应用就看到"阿导 正在写"等旧事件残留）
+    // 规则：连接后已经收过 done 事件 → 视为实时新任务，可显示 typing；否则跳过
+    if (!window._rwSeenDone) {
+      return;
+    }
     // 谁正在写 → 进度条区显示
     const prog = $('rwProgress');
     if (prog) {
@@ -9158,6 +10046,15 @@ function rwHandle(ev){
       div.className = 'rw-typing'; div.id = 'rwTyping';
       div.textContent = ev.name + ' 正在写…';
       prog.appendChild(div); scrollBottomRw();
+      // 超时兜底：2 分钟内没被 message 事件清掉就标红 + 给重试按钮
+      if (window._rwTypingTimer) clearTimeout(window._rwTypingTimer);
+      window._rwTypingTimer = setTimeout(() => {
+        const t = document.getElementById('rwTyping');
+        if (!t) return;
+        t.innerHTML = '<span style="color:#dc2626">⚠ ' + ev.name + ' 超过 2 分钟没回应（LLM 端点可能 hang）</span>' +
+          '<button class="btn-ghost" style="margin-left:10px;padding:3px 10px;font-size:11px" onclick="window.clearTypingStuck && window.clearTypingStuck()">清除 + 重新洗</button>';
+        t.id = 'rwTypingStuck';
+      }, 120000);
     }
     return;
   }
@@ -9171,6 +10068,15 @@ function rwHandle(ev){
         rwBusy = false;   // 句级重写完成解除 busy
         rwConsumeCommentQueue();  // 若有排队的评论，自动发下一条
       }
+      return;
+    }
+    // 逐句采纳：用户点「✅ 采用」→ 替换句子；「❌ 保留原句」→ 移除候选卡
+    if (kind === 'sentence_accepted') {
+      rwSentenceAccept(ev);
+      return;
+    }
+    if (kind === 'sentence_rejected') {
+      rwSentenceReject(ev);
       return;
     }
     // 分区成品 → 只更新成品句子流（可见），不往折叠的分析区重复堆
@@ -9191,6 +10097,9 @@ function rwHandle(ev){
   if (ev.type === 'done') {
     const typing = $('rwTyping'); if (typing) typing.remove();
     if (rwEs) { try { rwEs.close(); } catch(_){} rwEs = null; }
+    window._rwSeenDone = true;   // 标记：之后的新任务才显示 typing
+    rwBusy = false;   // 兜底：所有长任务（最终审查/句级重写/迭代/评价）的 done 事件都解除 busy
+    rwConsumeCommentQueue();  // 若有排队的评论，自动发下一条
     loadRewrite();
     return;
   }
@@ -9229,7 +10138,7 @@ function upsertRwPart(ev){
   // 重建全文流容器
   const full = document.querySelector('.rw-fulltext');
   if (full) {
-    full.innerHTML = rwFullTextHtml(rwCurrent, (rwMeta && rwMeta.regions) || [], parts, rwSessionCache.untouchable || []);
+    full.innerHTML = rwFullTextHtml(rwCurrent, (rwMeta && rwMeta.regions) || [], parts, rwSessionCache.untouchable || [], rwSessionCache && rwSessionCache.status, (rwSessionCache && rwSessionCache.last_error) || '');
   }
   if (ev.is_iteration) rwBusy = false;   // 迭代完成解除 busy
   scrollBottomRw();
@@ -9371,6 +10280,8 @@ async function rwSentenceComment(rid, regionId, idx){
 
 // SSE 就地更新某一句（sentence_update 事件）
 function rwSentenceUpdate(ev){
+  // 逐句采纳：pending 候选句先展示「采用/保留」操作条，不直接替换原文
+  if (ev.pending) { rwSentenceShowCandidate(ev); return; }
   const regionId = ev.region;
   const oldTxt = ev.sentence || '';
   const newTxt = ev.text || '';
@@ -9431,12 +10342,121 @@ function rwSentenceUpdate(ev){
   showToast('✅ 该句已按你的评论重写');
 }
 
+/* ================= 逐句采纳（Canvas 模型：候选句 + 采用/保留） ================= */
+function _rwFindSentenceSpan(oldTxt){
+  const full = document.querySelector('.rw-fulltext');
+  if (!full) return null;
+  let target = null;
+  full.querySelectorAll('.rw-s-line').forEach(s => {
+    if (s.getAttribute('data-txt') === oldTxt) target = s;
+  });
+  if (!target) {
+    const head = (oldTxt || '').replace(/[\s\u3000]+/g, '').slice(0, 12);
+    full.querySelectorAll('.rw-s-line').forEach(s => {
+      const t = (s.getAttribute('data-txt') || '').replace(/[\s\u3000]+/g, '').slice(0, 12);
+      if (head && t === head) target = s;
+    });
+  }
+  return target;
+}
+
+function rwSentenceShowCandidate(ev){
+  const oldTxt = ev.sentence || '';
+  const newTxt = ev.text || '';
+  const regionId = ev.region || '';
+  if (!oldTxt || !newTxt) return;
+  const target = _rwFindSentenceSpan(oldTxt);
+  if (!target) {
+    showToast('专家已重写这句，但找不到对应位置，请刷新查看');
+    return;
+  }
+  rwUnmarkPending(target);
+  const rid = target.getAttribute('data-rid') || rwCurrent || '';
+  // 移除旧的候选卡（同一句重复重写时）
+  const oldCard = target.parentNode && target.parentNode.querySelector('.rw-s-candidate');
+  if (oldCard) oldCard.remove();
+  const card = document.createElement('div');
+  card.className = 'rw-s-candidate';
+  card.innerHTML =
+    '<div class="c-label">✍️ 专家重写候选（原句保留不动）：</div>' +
+    '<div class="c-new">' + esc(newTxt) + '</div>' +
+    '<div class="c-btns">' +
+      '<button class="c-ok" data-act="accept">✅ 采用</button>' +
+      '<button class="c-no" data-act="reject">❌ 保留原句</button>' +
+    '</div>';
+  card.querySelector('[data-act=accept]').addEventListener('click', async () => {
+    const d = await post('/api/rewrite/' + rid + '/sentence_accept', {
+      region: regionId, sentence: oldTxt, new_text: newTxt
+    });
+    if (!d.ok) { showToast('⚠ ' + (d.error || '采纳失败')); return; }
+    showToast('✅ 已采用新句');
+  });
+  card.querySelector('[data-act=reject]').addEventListener('click', async () => {
+    const d = await post('/api/rewrite/' + rid + '/sentence_reject', {
+      region: regionId, sentence: oldTxt, new_text: newTxt
+    });
+    if (!d.ok) { showToast('⚠ ' + (d.error || '操作失败')); return; }
+    showToast('已保留原句');
+  });
+  // 插到句子后面（与句子同一个 <p> 里）
+  target.after(card);
+  try { card.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch(_) {}
+}
+
+function rwSentenceAccept(ev){
+  // SSE 收到 sentence_accepted → 真正替换句子 + 移除候选卡
+  const oldTxt = ev.sentence || '';
+  const newTxt = ev.text || '';
+  const target = _rwFindSentenceSpan(oldTxt);
+  if (target) {
+    const unt = ((rwSessionCache && rwSessionCache.untouchable) || []);
+    const isUnt = rwIsUntouchable(newTxt, unt);
+    const safe = esc(newTxt);
+    const inner = isUnt
+      ? ('<strong>' + safe + '</strong><span class="rw-unt-tag" title="不可动句，各分区必须保留">🔒</span>')
+      : safe;
+    const actBtn = target.querySelector('.rw-s-act');
+    target.innerHTML = inner + (actBtn ? actBtn.outerHTML : '');
+    target.setAttribute('data-txt', newTxt);
+    const card = target.nextElementSibling;
+    if (card && card.classList && card.classList.contains('rw-s-candidate')) card.remove();
+  }
+  // 更新缓存
+  const regionId = ev.region;
+  if (rwSessionCache && rwSessionCache.parts && rwSessionCache.parts[regionId]) {
+    const p = rwSessionCache.parts[regionId];
+    const sents = p.sentences || rwSplitSentences(p.text || '');
+    for (let i = 0; i < sents.length; i++) {
+      const norm = sents[i].replace(/[\s\u3000]+/g, '');
+      const oldNorm = (oldTxt || '').replace(/[\s\u3000]+/g, '');
+      if (norm === oldNorm || (oldNorm && norm.slice(0, 12) === oldNorm.slice(0, 12))) {
+        sents[i] = newTxt; break;
+      }
+    }
+    p.sentences = sents;
+    p.text = sents.join('\n\n');
+  }
+}
+
+function rwSentenceReject(ev){
+  // SSE 收到 sentence_rejected → 只移除候选卡，原句不动
+  const oldTxt = ev.sentence || '';
+  const target = _rwFindSentenceSpan(oldTxt);
+  if (target) {
+    const card = target.nextElementSibling;
+    if (card && card.classList && card.classList.contains('rw-s-candidate')) card.remove();
+  }
+}
+
 async function rwFinalize(rid){
   if (!rwSid) { showToast('会话未就绪，请重新打开'); return; }
-  const ok = await confirmDanger('⚖️ 最终审查 + 记录分工', '阿审会对当前成品做最终原则审查，阿数会记录每个区域由谁负责。确定继续？', '确认执行');
+  if (rwBusy) { showToast('⏳ 上一轮还没跑完，请等当前任务结束（最多 10 分钟）'); return; }
+  const ok = await confirmDanger('⚖️ 最终审查 + 记录分工', '阿审会对当前成品做最终原则审查，阿数会记录每个区域由谁负责。\u200b\u200b**约 5-10 分钟**\u200b\u200b，期间不要刷新页面。', '确认执行');
   if (!ok) return;
+  rwBusy = true;
+  showToast('⚖️ 已启动最终审查，约 5-10 分钟');
   const d = await post('/api/rewrite/' + rid + '/finalize', { sid: rwSid });
-  if (!d.ok) { showToast('⚠ ' + (d.error || '启动失败')); return; }
+  if (!d.ok) { rwBusy = false; showToast('⚠ ' + (d.error || '启动失败')); return; }
   connectRwStream(rwSid);
 }
 
@@ -9552,18 +10572,70 @@ function copyText(text){
   return ok;
 }
 function copyFullText(rid){
-  const regions = (rwMeta && rwMeta.regions) || [];
-  fetch('/api/rewrite/' + rid).then(r => r.json()).then(d => {
-    if (!d.ok || !d.session) { showToast('⚠ 加载失败'); return; }
-    const parts2 = d.session.parts || {};
-    const lines = regions.map(r => {
-      const p = parts2[r.id];
-      return p && p.text ? '【' + r.label + '】\n' + p.text : '';
-    }).filter(Boolean);
-    const full = lines.join('\n\n');
-    if (copyText(full)) showToast('✅ 成品全文已复制（' + full.length + ' 字）');
+  // 优先用 rwSessionCache（页面已有数据，不用网络请求）——后端在跑长任务时 fetch 会卡死
+  const cache = (typeof rwSessionCache !== 'undefined' && rwSessionCache && rwSessionCache.id === rid) ? rwSessionCache : null;
+  const build = (session) => {
+    if (!session) return '';
+    const parts2 = session.parts || {};
+    // 逐句清洗（剥专家前缀 + 过滤口诀/术语），与页面展示一致——复制出来的必须是干净正文
+    const cleanJoin = (arr) => {
+      if (!arr || !arr.length) return '';
+      const seen = new Set();
+      const out = [];
+      for (const x of arr) {
+        const c = rwStripPrefix(String(x));
+        if (!c) continue;
+        const key = c.replace(/\s+/g, '').slice(0, 30);
+        if (seen.has(key)) continue;   // 复读机去重
+        seen.add(key);
+        out.push(c);
+      }
+      return out.join('\n\n');
+    };
+    let full = '';
+    const f = parts2['final'];
+    if (f && f.sentences && f.sentences.length) {
+      // 优先用逐句清洗后的成品（剥前缀/过滤术语/去重），保证复制出来的与页面展示一致
+      full = cleanJoin(f.sentences);
+    } else if (f && f.text) {
+      full = rwStripPrefix(String(f.text));
+    }
+    if (!full) {
+      const bodyIds = ['opening', 'middle', 'ending'];
+      const chunks = bodyIds.map(id => {
+        const p = parts2[id];
+        if (!p) return '';
+        if (p.sentences && p.sentences.length) return cleanJoin(p.sentences);
+        if (p.text) return rwStripPrefix(String(p.text));
+        return '';
+      }).filter(Boolean);
+      full = chunks.join('\n\n');
+    }
+    if (!full) return '';
+    const title = (parts2['final'] && parts2['final'].title) || session.title || '';
+    return title ? (title.trim() + '\n\n' + full) : full;
+  };
+  if (cache) {
+    const out = build(cache);
+    if (!out) { showToast('⚠ 还没有成品内容'); return; }
+    if (copyText(out)) showToast('✅ 成品（含标题）已复制（' + out.length + ' 字）');
     else showToast('⚠ 复制失败，请手动选择');
-  }).catch(() => showToast('⚠ 复制失败'));
+    return;
+  }
+  // 缓存没有时再走网络（带 30s 超时，避免无限卡）
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 30000);
+  fetch('/api/rewrite/' + rid, { signal: ctl.signal }).then(r => r.json()).then(d => {
+    clearTimeout(timer);
+    if (!d.ok || !d.session) { showToast('⚠ 加载失败'); return; }
+    const out = build(d.session);
+    if (!out) { showToast('⚠ 还没有成品内容'); return; }
+    if (copyText(out)) showToast('✅ 成品（含标题）已复制（' + out.length + ' 字）');
+    else showToast('⚠ 复制失败，请手动选择');
+  }).catch(() => {
+    clearTimeout(timer);
+    showToast('⚠ 复制失败（后端忙，可重试或切回详情页后用页内复制）');
+  });
 }
 
 </script>

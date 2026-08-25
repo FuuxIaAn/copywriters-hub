@@ -16,6 +16,11 @@ import os
 import threading
 import uuid
 
+try:
+    from _safe_io import atomic_write_json, safe_load_json
+except ImportError:  # 打包/独立运行时 sys.path 注入前兜底
+    atomic_write_json = safe_load_json = None
+
 WORKS_FILENAME = "works.json"
 STATUS_LABELS = {
     "draft": "草稿",
@@ -38,6 +43,8 @@ def works_path(output_dir: str) -> str:
 
 def load(output_dir: str) -> dict:
     path = works_path(output_dir)
+    if safe_load_json is not None:
+        return safe_load_json(path, {"version": 2, "works": []})
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -49,6 +56,10 @@ def load(output_dir: str) -> dict:
 
 def save(output_dir: str, data: dict):
     path = works_path(output_dir)
+    if atomic_write_json is not None:
+        if not atomic_write_json(path, data):
+            print(f"[works] 保存作品库失败: {path}")
+        return
     try:
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -86,6 +97,15 @@ def _default_work(wid: str, title: str, draft: str, session_id: str = "", note: 
         "scores": [],          # [{name,score,reason,time}]
         "review": None,        # {time, actual_score, summary, conclusions}
         "metrics": {},         # {plays, completion, likes, comments, saved, ...}
+        # 发布信息（Q4：卡片显示发布时间 + 一键打开原视频）
+        "published_at": "",    # 发布时间（用户发布后录入，格式 YYYY-MM-DD HH:mm）
+        "video_url": "",       # 发布视频链接（优先）；无则用 platform+video_id 拼平台模板
+        "platform": "",        # douyin / kuaishou / xiaohongshu
+        "video_id": "",        # 视频 ID（aweme_id 等）
+        # 用户通过数据录入提交的原始数据文件（已复制到 output/works_data/<wid>/）。
+        # 结构：{traffic: {name, size}, content: {...}, audience: {...}, subtitle: {...}}
+        # 旧作品无此字段（不迁移），前端按缺省空处理。
+        "uploaded_files": {},
     }
 
 
@@ -209,6 +229,15 @@ def save_metrics(output_dir: str, wid: str, metrics: dict) -> dict | None:
     """保存详细数据指标（2秒跳出率/5秒完播率/平均播放时长/平均播放占比/完播率/播放量等），不改状态。"""
     def _fn(w):
         w["metrics"] = {**(w.get("metrics") or {}), **{k: v for k, v in (metrics or {}).items() if v is not None and v != ""}}
+    return update_work(output_dir, wid, _fn)
+
+
+def save_uploaded_files(output_dir: str, wid: str, uploaded: dict) -> dict | None:
+    """保存数据录入上传的文件清单（works_data/<wid>/ 下的副本信息）。
+    uploaded: {slot: {name, size}}，与已有记录按 slot 合并（重复提交同槽位覆盖）。"""
+    def _fn(w):
+        merged = {**(w.get("uploaded_files") or {}), **(uploaded or {})}
+        w["uploaded_files"] = merged
     return update_work(output_dir, wid, _fn)
 
 
