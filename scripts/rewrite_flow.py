@@ -980,8 +980,10 @@ def _is_agent_error_reply(text: str) -> bool:
 
 
 def _raise_if_agent_error(reply: str, name: str) -> str:
+    # reply 形如 "[阿骨 调用失败：未知错误]"，方括号+name 都在里面，
+    # 这里只去掉外层方括号，避免和 reply 里的 name 拼成"阿骨 阿骨 调用失败"。
     if _is_agent_error_reply(reply):
-        raise RuntimeError(f"[{name}] {reply.strip('[]')}")
+        raise RuntimeError(reply.strip("[]") or reply)
     return reply
 
 

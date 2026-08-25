@@ -87,53 +87,60 @@ class Agent:
         result = {"ok": False, "text": "", "err": None}
 
         def _work():
-            system = {"role": "system", "content": self._system_prompt()}
-            # 兜底防线 1：总消息超长时优先压缩 system 里的 knowledge（最占地方、对任务最不关键）。
-            if self.knowledge:
-                total = len(system["content"]) + sum(len(m.get("content") or "") for m in messages)
-                if total > _MAX_MSG_CHARS:
-                    excess = total - _MAX_MSG_CHARS
-                    cap = max(len(self.knowledge) - excess - 500, 1500)
-                    system = {"role": "system", "content": self._system_prompt(knowledge_cap=cap)}
-            # 兜底防线 2：压到最小 knowledge 后若仍超限（极端超大原文/上下文），对 user 消息
-            # 按长度比例右截断，保证发给模型的请求一定 ≤ 安全上限，彻底杜绝输入超长 400。
-            _total2 = len(system["content"]) + sum(len(m.get("content") or "") for m in messages)
-            if _total2 > _MAX_MSG_CHARS:
-                _over = _total2 - _MAX_MSG_CHARS
-                # 各 user 消息按占比分摊需截断的字符，保留头部（指令/原文都在前面，截尾部细节影响最小）
-                _alloc = [len(m.get("content") or "") for m in messages]
-                _alloc_sum = sum(_alloc) or 1
-                messages = [
-                    dict(m, content=(m.get("content") or "")[: max(int(c - _over * c / _alloc_sum), 300)])
-                    for m, c in zip(messages, _alloc)
-                ]
-            last_err = None
-            for attempt in range(_MAX_RETRIES + 1):
-                try:
-                    resp = self.client.chat.completions.create(
-                        model=self.model,
-                        temperature=self.temperature,
-                        messages=[system] + messages,
-                        timeout=_SAY_TIMEOUT,
-                    )
-                    content = resp.choices[0].message.content
-                    result["ok"] = True
-                    result["text"] = (content or "").strip()
-                    return
-                except Exception as e:  # noqa: BLE001
-                    last_err = e
-                    if attempt < _MAX_RETRIES:
-                        # TLS 握手超时、连接重置等错误通常是瞬时网络问题；
-                        # 逐步退避，给代理/运营商连接池时间恢复。
-                        err_s = str(e).lower()
-                        delay = 2.0 * (attempt + 1)
-                        if any(k in err_s for k in (
-                            "ssl", "handshake", "timed out", "timeout",
-                            "connection", "reset", "eof", "temporarily",
-                        )):
-                            delay = 3.0 * (attempt + 1)
-                        time.sleep(delay)
-            result["err"] = last_err
+            # 整个工作体用 BaseException 兜底，确保任何异常（含非 Exception 子类）
+            # 都会让 result["err"] 被设置，避免主线程拿到 err=None 误报"未知错误"。
+            try:
+                system = {"role": "system", "content": self._system_prompt()}
+                # 兜底防线 1：总消息超长时优先压缩 system 里的 knowledge（最占地方、对任务最不关键）。
+                if self.knowledge:
+                    total = len(system["content"]) + sum(len(m.get("content") or "") for m in messages)
+                    if total > _MAX_MSG_CHARS:
+                        excess = total - _MAX_MSG_CHARS
+                        cap = max(len(self.knowledge) - excess - 500, 1500)
+                        system = {"role": "system", "content": self._system_prompt(knowledge_cap=cap)}
+                # 兜底防线 2：压到最小 knowledge 后若仍超限（极端超大原文/上下文），对 user 消息
+                # 按长度比例右截断，保证发给模型的请求一定 ≤ 安全上限，彻底杜绝输入超长 400。
+                _total2 = len(system["content"]) + sum(len(m.get("content") or "") for m in messages)
+                if _total2 > _MAX_MSG_CHARS:
+                    _over = _total2 - _MAX_MSG_CHARS
+                    # 各 user 消息按占比分摊需截断的字符，保留头部（指令/原文都在前面，截尾部细节影响最小）
+                    _alloc = [len(m.get("content") or "") for m in messages]
+                    _alloc_sum = sum(_alloc) or 1
+                    messages = [
+                        dict(m, content=(m.get("content") or "")[: max(int(c - _over * c / _alloc_sum), 300)])
+                        for m, c in zip(messages, _alloc)
+                    ]
+                last_err = None
+                for attempt in range(_MAX_RETRIES + 1):
+                    try:
+                        resp = self.client.chat.completions.create(
+                            model=self.model,
+                            temperature=self.temperature,
+                            messages=[system] + messages,
+                            timeout=_SAY_TIMEOUT,
+                        )
+                        content = resp.choices[0].message.content
+                        result["ok"] = True
+                        result["text"] = (content or "").strip()
+                        return
+                    except Exception as e:  # noqa: BLE001
+                        last_err = e
+                        if attempt < _MAX_RETRIES:
+                            # TLS 握手超时、连接重置等错误通常是瞬时网络问题；
+                            # 逐步退避，给代理/运营商连接池时间恢复。
+                            err_s = str(e).lower()
+                            delay = 2.0 * (attempt + 1)
+                            if any(k in err_s for k in (
+                                "ssl", "handshake", "timed out", "timeout",
+                                "connection", "reset", "eof", "temporarily",
+                            )):
+                                delay = 3.0 * (attempt + 1)
+                            time.sleep(delay)
+                result["err"] = last_err
+            except BaseException as e:  # noqa: BLE001
+                # 非 Exception（如 SystemExit/KeyboardInterrupt）或 try 块外代码异常。
+                # 记到 err，避免主线程拿到 None 显示"未知错误"。
+                result["err"] = e
 
         t = threading.Thread(target=_work, daemon=True)
         t.start()
@@ -144,6 +151,13 @@ class Agent:
         if result["ok"]:
             return result["text"]
         err = result["err"]
+        if err is None:
+            # 极少见：_work 线程死在 try 块外且 BaseException 也没抓到（理论上不可能）。
+            # 给一个明确诊断，不再糊弄"未知错误"。
+            err = RuntimeError(
+                f"内部异常：say() 完成但 err 与 ok 都为空（text={result['text'][:60]!r}）。"
+                "请把客户端日志截图发给开发者排查。"
+            )
         err_s = str(err or "").lower()
         if any(k in err_s for k in ("ssl", "handshake", "timed out", "timeout", "connection", "reset", "eof")):
             return f"[{self.name} 暂时无法连接模型服务：网络握手超时。请稍后点击重试，或检查网络/代理设置。]"
